@@ -1,0 +1,22 @@
+*.so.*
+credentials
+__pycache__
+.vscode
+
+build
+*.egg-info
+.*cache
+*.tif
+*.vrt
+.data
+.TMP
+*.gpkg
+
+# include test data files
+!dem_comparison/data/*.gpkg
+
+# ignore secret files
+*.secret
+
+# ignore notebooks
+*.ipynb

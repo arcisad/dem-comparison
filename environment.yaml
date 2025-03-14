@@ -1,0 +1,16 @@
+name: dem-comparison
+channels:
+  - conda-forge
+dependencies:
+  - rasterio=1.4.3
+  - gdal=3.10.2
+  - pip:
+    - ipykernel
+    - numpy==2.2.3
+    - geopandas==1.0.1
+    - rioxarray==0.18.2
+    - boto3==1.37.12
+    - pytest==8.3.5
+    - coverage==7.6.12
+    - requests==2.32.3
+    - git+https://github.com/GeoscienceAustralia/dem-handler.git
