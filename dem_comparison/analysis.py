@@ -185,7 +185,7 @@ def analyse_difference_for_interval(
             rema_array, cop_array, rema_valid_idx, dem_diff = query_dems(
                 bounds, temp_path, rema_index_path, cop30_index_path, rema_resolution
             )
-            if rema_array:
+            if rema_array is not None:
                 rema_array_list.append(rema_array)
                 cop_array_list.append(cop_array)
                 rema_valid_idx_list.append(rema_valid_idx)
@@ -231,7 +231,7 @@ def query_dems(
         bounds_src_crs=4326,
         ellipsoid_heights=False,
     )
-    if not rema_array:
+    if rema_array is None:
         return tuple([None] * 4)
 
     get_cop30_dem_for_bounds(
@@ -251,6 +251,8 @@ def query_dems(
         save_path_1=cop_save_path if cop_save_path else "",
         save_path_2=rema_save_path if rema_save_path else "",
     )
+    rema_array = np.squeeze(rema_array.to_numpy())
+    cop_array = np.squeeze(cop_array.to_numpy())
 
     rema_array[rema_array == 0] = np.nan
     rema_valid_idx = np.where(~np.isnan(rema_array))
