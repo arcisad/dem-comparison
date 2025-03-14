@@ -156,7 +156,7 @@ def analyse_difference_for_interval(
         with mp.Pool(processes=num_cpu) as p:
             try:
                 outputs = p.starmap(
-                    get_output_arrays,
+                    query_dems,
                     [
                         (
                             bounds,
@@ -182,7 +182,7 @@ def analyse_difference_for_interval(
         rema_valid_idx_list = []
         dem_diff_list = []
         for bounds in bounds_list:
-            rema_array, cop_array, rema_valid_idx, dem_diff = get_output_arrays(
+            rema_array, cop_array, rema_valid_idx, dem_diff = query_dems(
                 bounds, temp_path, rema_index_path, cop30_index_path, rema_resolution
             )
             if rema_array:
@@ -194,12 +194,14 @@ def analyse_difference_for_interval(
     return rema_array_list, cop_array_list, rema_valid_idx_list, dem_diff_list
 
 
-def get_output_arrays(
+def query_dems(
     bounds: BBox,
     temp_path: Path = Path("TMP"),
     rema_index_path: Path = Path("dem_comparison/data/REMA_Mosaic_Index_v2.gpkg"),
     cop30_index_path: Path = Path("dem_comparison/data/copdem_tindex_filename.gpkg"),
     rema_resolution: int = 10,
+    rema_save_path: Path | None = None,
+    cop_save_path: Path | None = None,
 ) -> tuple:
     """Finds the DEMs for a given bounds
 
@@ -246,6 +248,8 @@ def get_output_arrays(
         target_crs=3031,
         verbose=True,
         convert_dB=False,
+        save_path_1=cop_save_path if cop_save_path else "",
+        save_path_2=rema_save_path if rema_save_path else "",
     )
 
     rema_array[rema_array == 0] = np.nan
