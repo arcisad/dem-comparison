@@ -9,8 +9,9 @@ dependencies:
     - numpy==2.2.3
     - geopandas==1.0.1
     - rioxarray==0.18.2
-    - boto3==1.37.12
+    - aioboto3==14.1.0
     - pytest==8.3.5
     - coverage==7.6.12
     - requests==2.32.3
+    - multiprocess==0.70.17
     - git+https://github.com/GeoscienceAustralia/dem-handler.git

@@ -1,8 +1,12 @@
 from rasterio.enums import Resampling
 from rasterio.crs import CRS
+from rasterio.profiles import Profile
 from pathlib import Path
 import numpy as np
 import rioxarray
+import rasterio as rio
+from dem_handler.utils.spatial import crop_datasets_to_bounds, BBox
+import multiprocessing as mp
 
 TEST_PATH = Path("tests")
 GEOID_PATH = TEST_PATH / "data/geoid/egm_08_geoid.tif"
@@ -157,3 +161,43 @@ def reproject_match_tifs(
         tif_2_matched.rio.to_raster(save_path_2)
 
     return tif_1_matched, tif_2_matched
+
+
+def build_diff_mosaic(
+    diff_datsets: list,
+    save_path: Path | None = None,
+) -> tuple[np.ndarray, Profile]:
+    bounds = rio.open(diff_datsets[0]).bounds
+    mosaic, profile = crop_datasets_to_bounds(diff_datsets, bounds, save_path)
+    return mosaic, profile
+
+
+def build_full_mosaic(
+    diff_datsets: list,
+    num_cpus: int = 1,
+    batch_size: int = 20,
+    mp_chunk_size: int = 20,
+    temp_save_dir: Path = Path("chunks_temp_dir"),
+    save_path: Path | None = None,
+) -> tuple[np.ndarray, Profile]:
+    chunks = list(
+        filter(
+            lambda el: len(el) > 0,
+            [diff_datsets[i::batch_size] for i in range(batch_size)],
+        )
+    )
+    chunk_save_paths = [temp_save_dir / f"chunk_{i}" for i in range(len(chunks))]
+    if num_cpus == 1:
+        for i, chunk in enumerate(chunks):
+            build_diff_mosaic(chunk, chunk_save_paths[i])
+    else:
+        with mp.Pool(processes=num_cpus) as p:
+            p.starmap(
+                build_diff_mosaic,
+                [(el[0], el[1]) for el in list(zip(chunks, chunk_save_paths))],
+                chunksize=mp_chunk_size,
+            )
+
+    bounds = rio.open(diff_datsets[0]).bounds
+    mosaic, profile = crop_datasets_to_bounds(chunk_save_paths, bounds, save_path)
+    return mosaic, profile
