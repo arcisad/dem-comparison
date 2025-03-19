@@ -10,6 +10,7 @@ import multiprocessing as mp
 from osgeo import gdal
 from dem_handler.utils.spatial import resize_bounds
 from dem_handler.utils.spatial import BoundingBox
+import os
 
 TEST_PATH = Path("tests")
 GEOID_PATH = TEST_PATH / "data/geoid/egm_08_geoid.tif"
@@ -270,8 +271,17 @@ def simple_mosaic(
         outputBounds=bounds,
         VRTNodata=np.nan,
     )
-    ds = gdal.BuildVRT(save_path, dem_rasters, options=VRT_options)
+    vrt_path = str(save_path).replace(".tif", ".vrt")
+    ds = gdal.BuildVRT(vrt_path, dem_rasters, options=VRT_options)
     ds.FlushCache()
+
+    src = rio.open(vrt_path)
+    profile = src.profile
+    profile.update({"driver": "GTiff"})
+    array = src.read(1)
+    with rio.open(save_path, "w", **profile) as dst:
+        dst.write(array, 1)
+    os.remove(vrt_path)
     print(f"Mosaic created.")
     return None
 

@@ -4,7 +4,9 @@ from pathlib import Path
 from dem_comparison.utils import *
 from dem_handler.utils.spatial import resize_bounds
 from dem_handler.dem.rema import get_rema_dem_for_bounds
+from dem_handler.dem.geoid import remove_geoid
 from dem_handler.dem.cop_glo30 import get_cop30_dem_for_bounds
+from dem_handler.download.aws import download_egm_08_geoid
 import multiprocessing as mp
 from itertools import product
 import shutil
@@ -115,6 +117,7 @@ def analyse_difference_for_interval(
     mp_chunk_size: int = 20,
     query_num_cpus: int = 1,
     query_num_tasks: int | None = -1,
+    keep_temp_files: bool = False,
 ) -> tuple:
     """Analyse the difference between REMA and COP30 DEMs fir the given interval in degrees.
 
@@ -148,6 +151,8 @@ def analyse_difference_for_interval(
     query_num_tasks: int | None, optional
         Number of tasks. Each task will run in async mode on each cpu, by default None, which turns off async mode.
         If set to -1, all DEMs will be downloaded in async mode in on single task on one cpu only.
+    keep_temp_files: bool, optional,
+        Flag to keep temporary files, by default False.
 
     Returns
     -------
@@ -195,6 +200,7 @@ def analyse_difference_for_interval(
                             None,
                             query_num_cpus,
                             query_num_tasks,
+                            keep_temp_files,
                         )
                         for bounds in bounds_list
                     ],
@@ -222,6 +228,7 @@ def analyse_difference_for_interval(
                 save_dir_path,
                 num_cpus=query_num_cpus,
                 num_tasks=query_num_tasks,
+                keep_temp_files=keep_temp_files,
             )
             if rema_array is not None:
                 rema_array_list.append(rema_array)
@@ -321,6 +328,20 @@ def query_dems(
     else:
         required_cop_dem = downloaded_cop_files[0]
         print(f"Required COP DEM: {required_cop_dem}")
+
+    geoid_tif_path = temp_path / "geoid.tif"
+    if not geoid_tif_path.exists():
+        download_egm_08_geoid(geoid_tif_path, bounds=original_bounds.bounds)
+
+    cop_raster = rio.open(required_cop_dem)
+    remove_geoid(
+        dem_array=cop_raster.read(1),
+        dem_profile=cop_raster.profile,
+        geoid_path=geoid_tif_path,
+        buffer_pixels=2,
+        save_path=temp_path / "TEMP_COP.tif",
+    )
+    required_cop_dem = temp_path / "TEMP_COP.tif"
 
     cop_array, rema_array = reproject_match_tifs(
         required_cop_dem,
