@@ -12,6 +12,9 @@ build
 .TMP
 *.gpkg
 
+# QGIS xml files
+*.aux.xml
+
 # include test data files
 !dem_comparison/data/*.gpkg
 

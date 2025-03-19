@@ -7,6 +7,9 @@ import rioxarray
 import rasterio as rio
 from dem_handler.utils.spatial import crop_datasets_to_bounds, BBox
 import multiprocessing as mp
+from osgeo import gdal
+from dem_handler.utils.spatial import resize_bounds
+from dem_handler.utils.spatial import BoundingBox
 
 TEST_PATH = Path("tests")
 GEOID_PATH = TEST_PATH / "data/geoid/egm_08_geoid.tif"
@@ -163,15 +166,6 @@ def reproject_match_tifs(
     return tif_1_matched, tif_2_matched
 
 
-def build_diff_mosaic(
-    diff_datsets: list,
-    save_path: Path | None = None,
-) -> tuple[np.ndarray, Profile]:
-    bounds = rio.open(diff_datsets[0]).bounds
-    mosaic, profile = crop_datasets_to_bounds(diff_datsets, bounds, save_path)
-    return mosaic, profile
-
-
 def build_full_mosaic(
     diff_datsets: list,
     num_cpus: int = 1,
@@ -179,7 +173,38 @@ def build_full_mosaic(
     mp_chunk_size: int = 20,
     temp_save_dir: Path = Path("chunks_temp_dir"),
     save_path: Path | None = None,
-) -> tuple[np.ndarray, Profile]:
+    return_outputs: bool = False,
+    bounds_scale_factor: float = 1.02,
+    resolution: str = "lowest",
+) -> tuple[np.ndarray, Profile] | None:
+    """Creates mosaic of diff arrays in batches and using multi-processing
+
+    Parameters
+    ----------
+    diff_datsets : list
+        List of paths to diff arrays
+    num_cpus : int, optional
+        Number of cpus, by default 1
+    batch_size : int, optional
+        Batch size for data processing, by default 20
+    mp_chunk_size : int, optional
+        Multi-processing chunk size, by default 20
+    temp_save_dir : Path, optional
+        Temporary save directory, by default Path("chunks_temp_dir")
+    save_path : Path | None, optional
+        Path to save final output, by default None
+    return_outputs : bool, optional
+        Returns the output array and profile, by default False
+    bounds_scale_factor: float, optional
+        Scales the bounds by this factor, by default 1.02
+    resolution : str, optional
+        Resolution to be used, by default "lowest"
+
+    Returns
+    -------
+    tuple[np.ndarray, Profile] | None
+        Returns the output array and profile if `return_outputs` is set, otherwise, returns None.
+    """
     chunks = list(
         filter(
             lambda el: len(el) > 0,
@@ -189,15 +214,86 @@ def build_full_mosaic(
     chunk_save_paths = [temp_save_dir / f"chunk_{i}" for i in range(len(chunks))]
     if num_cpus == 1:
         for i, chunk in enumerate(chunks):
-            build_diff_mosaic(chunk, chunk_save_paths[i])
+            simple_mosaic(chunk, chunk_save_paths[i], resolution, bounds_scale_factor)
     else:
         with mp.Pool(processes=num_cpus) as p:
             p.starmap(
-                build_diff_mosaic,
-                [(el[0], el[1]) for el in list(zip(chunks, chunk_save_paths))],
+                simple_mosaic,
+                [
+                    (
+                        el[0],
+                        el[1],
+                        resolution,
+                        bounds_scale_factor,
+                    )
+                    for el in list(zip(chunks, chunk_save_paths))
+                ],
                 chunksize=mp_chunk_size,
             )
 
-    bounds = rio.open(diff_datsets[0]).bounds
-    mosaic, profile = crop_datasets_to_bounds(chunk_save_paths, bounds, save_path)
-    return mosaic, profile
+    simple_mosaic(chunk_save_paths, save_path, resolution, bounds_scale_factor)
+    if return_outputs:
+        mosaic_raster = rio.open(save_path)
+        return mosaic_raster.read(1), mosaic_raster.profile
+    else:
+        return None
+
+
+def simple_mosaic(
+    dem_rasters: list[Path],
+    save_path: Path,
+    resolution: str = "lowest",
+    bounds_scale_factor: float = 1.02,
+) -> None:
+    """Making simple mosaic of all given raster files
+
+    Parameters
+    ----------
+    dem_rasters : list[Path]
+        List of raster files
+    save_path : Path
+        Output file path.
+    resolution : str, optional
+        Resolution to be used, by default "lowest"
+    bounds_scale_factor: float, optional
+        Scales the bounds by this factor, by default 1.02
+    """
+    rasters = [rio.open(ds) for ds in dem_rasters]
+    lefts = [r.bounds.left for r in rasters]
+    rights = [r.bounds.right for r in rasters]
+    bottoms = [r.bounds.bottom for r in rasters]
+    tops = [r.bounds.top for r in rasters]
+    bounds = (min(lefts), min(bottoms), max(rights), max(tops))
+    bounds = resize_bounds(BoundingBox(*bounds), bounds_scale_factor).bounds
+    VRT_options = gdal.BuildVRTOptions(
+        resolution=resolution,
+        outputBounds=bounds,
+        VRTNodata=np.nan,
+    )
+    ds = gdal.BuildVRT(save_path, dem_rasters, options=VRT_options)
+    ds.FlushCache()
+    print(f"Mosaic created.")
+    return None
+
+
+def reproject_dem(
+    dem: Path,
+    target_crs: int,
+    save_path: Path,
+) -> None:
+    """Reprojects DEM to given crs.
+
+    Parameters
+    ----------
+    dem : Path
+        DEM path
+    target_crs : int
+        Target crs.
+    save_path : Path
+        Output path
+
+    """
+    raster = rioxarray.open_rasterio(dem)
+    raster_rep = raster.rio.reproject(f"EPSG:{target_crs}")
+    raster_rep.rio.to_raster(save_path)
+    return None

@@ -285,8 +285,8 @@ def query_dems(
     if not temp_path.exists():
         temp_path.mkdir(exist_ok=True)
 
-    rema_array, _ = get_rema_dem_for_bounds(
-        bounds,
+    _, _, downloaded_rema_files = get_rema_dem_for_bounds(
+        original_bounds,
         save_path=temp_path / "TEMP_REMA.tif",
         rema_index_path=rema_index_path,
         resolution=rema_resolution,
@@ -294,21 +294,37 @@ def query_dems(
         ellipsoid_heights=False,
         num_cpus=num_cpus,
         num_tasks=num_tasks,
+        return_paths=True,
     )
-    if rema_array is None:
+    if len(downloaded_rema_files) == 0:
         return tuple([None] * 4)
 
-    get_cop30_dem_for_bounds(
+    if len(downloaded_rema_files) > 1:
+        required_rema_dem = temp_path / "TEMP_REMA.tif"
+    else:
+        required_rema_dem = downloaded_rema_files[0]
+        print(f"Required REMA DEM: {required_rema_dem}")
+
+    _, _, downloaded_cop_files = get_cop30_dem_for_bounds(
         bounds,
         save_path=temp_path / "TEMP_COP.tif",
         ellipsoid_heights=False,
         cop30_index_path=cop30_index_path,
         download_dem_tiles=True,
+        return_paths=True,
     )
+    if len(downloaded_cop_files) == 0:
+        return tuple([None] * 4)
+
+    if len(downloaded_cop_files) > 1:
+        required_cop_dem = temp_path / "TEMP_COP.tif"
+    else:
+        required_cop_dem = downloaded_cop_files[0]
+        print(f"Required COP DEM: {required_cop_dem}")
 
     cop_array, rema_array = reproject_match_tifs(
-        temp_path / "TEMP_COP.tif",
-        temp_path / "TEMP_REMA.tif",
+        required_cop_dem,
+        required_rema_dem,
         target_crs=3031,
         verbose=True,
         convert_dB=False,
@@ -316,8 +332,12 @@ def query_dems(
         save_path_2=rema_save_path if rema_save_path else "",
     )
     if save_dir_path:
+        if not save_dir_path.exists():
+            save_dir_path.mkdir(exist_ok=True)
         diff_array_save_path = save_dir_path / f"dem_diff_{top_left_str}.tif"
-        (rema_array - cop_array).rio.to_raster(diff_array_save_path)
+        diff_array = rema_array - cop_array
+        diff_array.rio.write_nodata(np.nan, inplace=True)
+        diff_array.rio.to_raster(diff_array_save_path)
 
     if not keep_temp_files:
         shutil.rmtree(temp_path, ignore_errors=True)
