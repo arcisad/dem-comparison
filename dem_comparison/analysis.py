@@ -314,6 +314,14 @@ def query_dems(
         required_rema_dem = downloaded_rema_files[0]
         print(f"Required REMA DEM: {required_rema_dem}")
 
+    if save_dir_path:
+        if not save_dir_path.exists():
+            save_dir_path.mkdir(exist_ok=True)
+        generate_metrics(
+            required_rema_dem,
+            save_path=save_dir_path / f"original_rema_metrics_{top_left_str}.pkl",
+        )
+
     _, _, downloaded_cop_files = get_cop30_dem_for_bounds(
         bounds,
         save_path=temp_path / "TEMP_COP.tif",
@@ -365,12 +373,14 @@ def query_dems(
         save_path_2=rema_save_path if rema_save_path else "",
     )
     if save_dir_path:
-        if not save_dir_path.exists():
-            save_dir_path.mkdir(exist_ok=True)
         diff_array_save_path = save_dir_path / f"dem_diff_{top_left_str}.tif"
         diff_array = rema_array - cop_array
         diff_array.rio.write_nodata(np.nan, inplace=True)
         diff_array.rio.to_raster(diff_array_save_path)
+        generate_metrics(
+            np.squeeze(diff_array.to_numpy()),
+            save_path=save_dir_path / f"dem_diff_metrics_{top_left_str}.pkl",
+        )
 
     if not keep_temp_files:
         shutil.rmtree(temp_path, ignore_errors=True)
@@ -387,7 +397,7 @@ def generate_metrics(
     array2: np.ndarray | Path | None = None,
     save_path: Path | None = None,
 ) -> tuple:
-    """Generates statistical metrics
+    """Generates statistical metrics for an error array, or a calculated error array if `array2` is provided.
 
     Parameters
     ----------
@@ -402,6 +412,7 @@ def generate_metrics(
     -------
     tuple
         Statistical metrics
+        (Mean Absolute Error, Standard Deviation of Error, Mean Squared Error, Normalised Median Absolute Deviation of Error)
     """
     if type(array1) is Path:
         array1 = rio.open(array1).read(1)
@@ -419,7 +430,7 @@ def generate_metrics(
     std = diff_array.std()
     mse = np.square(diff_array).mean()
     median = np.median(diff_array)
-    nmad = 1.4826 * np.median(diff_array - median)
+    nmad = 1.4826 * np.median(np.abs(diff_array - median))
 
     metrics = mae, std, mse, nmad
     if save_path:
