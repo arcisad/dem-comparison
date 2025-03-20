@@ -15,6 +15,9 @@ build
 # QGIS xml files
 *.aux.xml
 
+# pickle files
+*.pkl
+
 # include test data files
 !dem_comparison/data/*.gpkg
 

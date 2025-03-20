@@ -10,6 +10,7 @@ from dem_handler.download.aws import download_egm_08_geoid
 import multiprocessing as mp
 from itertools import product
 import shutil
+import pickle
 
 
 def analyse_difference(
@@ -24,7 +25,8 @@ def analyse_difference(
     mp_chunk_size: int = 20,
     query_num_cpus: int = 1,
     query_num_tasks: int | None = -1,
-) -> tuple:
+    return_outputs: bool = False,
+) -> tuple | None:
     """Analyse the difference between REMA and COP30 DEMs
 
     Parameters
@@ -53,11 +55,13 @@ def analyse_difference(
     query_num_tasks: int | None, optional
         Number of tasks. Each task will run in async mode on each cpu, by default None, which turns off async mode.
         If set to -1, all DEMs will be downloaded in async mode in on single task on one cpu only.
+    return_outputs: bool, optional
+        Returns the output of anlysis, by default Fasle.
 
     Returns
     -------
     tuple
-        REMA DEMs, COP30 DEMs, Valid indexes in the arrays, Difference array
+        REMA DEMs and COP30 DEMs if `return_output` is set otherwise None.
     """
     if type(lat_range) is range:
         lat_range = list(range(lat_range.start, lat_range.stop, interval))
@@ -73,33 +77,30 @@ def analyse_difference(
 
     final_rema_array_list = []
     final_cop_array_list = []
-    final_rema_valid_idx_list = []
-    final_dem_diff_list = []
     for c in combinations:
-        rema_array_list, cop_array_list, rema_valid_idx_list, dem_diff_list = (
-            analyse_difference_for_interval(
-                c[0],
-                c[1],
-                rema_resolution,
-                save_dir_path,
-                use_multiprocessing=use_multiprocessing,
-                num_cpus=num_cpus,
-                mp_chunk_size=mp_chunk_size,
-                query_num_cpus=query_num_cpus,
-                query_num_tasks=query_num_tasks,
-            )
+        outputs = analyse_difference_for_interval(
+            c[0],
+            c[1],
+            rema_resolution,
+            save_dir_path,
+            use_multiprocessing=use_multiprocessing,
+            num_cpus=num_cpus,
+            mp_chunk_size=mp_chunk_size,
+            query_num_cpus=query_num_cpus,
+            query_num_tasks=query_num_tasks,
         )
 
-        final_rema_array_list.append(rema_array_list)
-        final_cop_array_list.append(cop_array_list)
-        final_rema_valid_idx_list.append(rema_valid_idx_list)
-        final_dem_diff_list.append(dem_diff_list)
+        if return_outputs:
+            final_rema_array_list.append(outputs[0])
+            final_cop_array_list.append(outputs[1])
 
     return (
-        final_rema_array_list,
-        final_cop_array_list,
-        final_rema_valid_idx_list,
-        final_dem_diff_list,
+        (
+            final_rema_array_list,
+            final_cop_array_list,
+        )
+        if return_outputs
+        else None
     )
 
 
@@ -118,7 +119,8 @@ def analyse_difference_for_interval(
     query_num_cpus: int = 1,
     query_num_tasks: int | None = -1,
     keep_temp_files: bool = False,
-) -> tuple:
+    return_outputs: bool = False,
+) -> tuple | None:
     """Analyse the difference between REMA and COP30 DEMs fir the given interval in degrees.
 
     Parameters
@@ -153,11 +155,13 @@ def analyse_difference_for_interval(
         If set to -1, all DEMs will be downloaded in async mode in on single task on one cpu only.
     keep_temp_files: bool, optional,
         Flag to keep temporary files, by default False.
+    return_outputs: bool, optional
+        Returns the output of anlysis, by default False.
 
     Returns
     -------
     tuple
-        REMA DEMs, COP30 DEMs, Valid indexes in the arrays, Difference array
+        REMA DEMs and COP30 DEMs if `return_output` is set otherwise None.
 
     Raises
     ------
@@ -209,17 +213,13 @@ def analyse_difference_for_interval(
                 outputs = list(filter(lambda el: all(i for i in el), outputs))
                 rema_array_list = [o[0] for o in outputs]
                 cop_array_list = [o[1] for o in outputs]
-                rema_valid_idx_list = [o[2] for o in outputs]
-                dem_diff_list = [o[3] for o in outputs]
             except Exception as e:
                 raise e
     else:
         rema_array_list = []
         cop_array_list = []
-        rema_valid_idx_list = []
-        dem_diff_list = []
         for bounds in bounds_list:
-            rema_array, cop_array, rema_valid_idx, dem_diff = query_dems(
+            outputs = query_dems(
                 bounds,
                 temp_path,
                 rema_index_path,
@@ -229,14 +229,13 @@ def analyse_difference_for_interval(
                 num_cpus=query_num_cpus,
                 num_tasks=query_num_tasks,
                 keep_temp_files=keep_temp_files,
+                return_outputs=return_outputs,
             )
-            if rema_array is not None:
-                rema_array_list.append(rema_array)
-                cop_array_list.append(cop_array)
-                rema_valid_idx_list.append(rema_valid_idx)
-                dem_diff_list.append(dem_diff)
+            if return_outputs and (outputs[0] is not None):
+                rema_array_list.append(outputs[0])
+                cop_array_list.append(outputs[1])
 
-    return rema_array_list, cop_array_list, rema_valid_idx_list, dem_diff_list
+    return (rema_array_list, cop_array_list) if return_outputs else None
 
 
 def query_dems(
@@ -251,7 +250,8 @@ def query_dems(
     num_cpus: int = 1,
     num_tasks: int | None = None,
     keep_temp_files: bool = False,
-) -> tuple:
+    return_outputs: bool = True,
+) -> tuple | None:
     """Finds the DEMs for a given bounds
 
     Parameters
@@ -276,17 +276,19 @@ def query_dems(
         If set to -1, all DEMs will be downloaded in async mode in on single task on one cpu only.
     keep_temp_files: bool, optional,
         Flag to keep temporary files, by default False.
+    return_outputs: bool, optional
+        Returns the output of anlysis, by default True.
 
     Returns
     -------
     tuple
-       REMA DEMs, COP30 DEMs, Valid indexes in the arrays, Difference array
+       REMA DEMs and COP30 DEMs if `return_output` is set otherwise None.
     """
 
     original_bounds = resize_bounds(bounds, 10.0)
     east_west = "E" if original_bounds.xmin > 0 else "W"
     north_south = "N" if original_bounds.ymax > 0 else "S"
-    top_left_str = f"{int(np.abs(np.round(original_bounds.xmin)))}{east_west}_{int(np.abs(np.round(original_bounds.ymax)))}{north_south}"
+    top_left_str = f"{int(np.abs(np.round(original_bounds.ymin)))}{north_south}_{int(np.abs(np.round(original_bounds.xmin)))}{east_west}"
     temp_path = temp_path / top_left_str
 
     if not temp_path.exists():
@@ -323,25 +325,35 @@ def query_dems(
     if len(downloaded_cop_files) == 0:
         return tuple([None] * 4)
 
-    if len(downloaded_cop_files) > 1:
-        required_cop_dem = temp_path / "TEMP_COP.tif"
-    else:
-        required_cop_dem = downloaded_cop_files[0]
+    required_cop_dem = temp_path / "TEMP_COP.tif"
+    if len(downloaded_cop_files) == 1:
+        temp_cop_dem = downloaded_cop_files[0]
+        required_cop_dem = temp_cop_dem
         print(f"Required COP DEM: {required_cop_dem}")
+    else:
+        temp_cop_dem_raster = required_cop_dem
+        temp_cop_dem_profile = temp_cop_dem_raster.profile
+        temp_cop_dem_profile.update({"nodata": np.nan})
+        temp_cop_dem_array = temp_cop_dem_raster.read(1)
+        temp_cop_dem_raster.close()
+        with rio.open(temp_path / "TEMP_COP.tif", "w", **temp_cop_dem_profile) as ds:
+            ds.write(temp_cop_dem_array, 1)
 
     geoid_tif_path = temp_path / "geoid.tif"
     if not geoid_tif_path.exists():
         download_egm_08_geoid(geoid_tif_path, bounds=original_bounds.bounds)
 
-    cop_raster = rio.open(required_cop_dem)
+    temp_cop_dem_raster = rio.open(required_cop_dem)
+    temp_cop_dem_profile = temp_cop_dem_raster.profile
+    temp_cop_dem_array = temp_cop_dem_raster.read(1)
+    temp_cop_dem_raster.close()
     remove_geoid(
-        dem_array=cop_raster.read(1),
-        dem_profile=cop_raster.profile,
+        dem_array=temp_cop_dem_array,
+        dem_profile=temp_cop_dem_profile,
         geoid_path=geoid_tif_path,
         buffer_pixels=2,
         save_path=temp_path / "TEMP_COP.tif",
     )
-    required_cop_dem = temp_path / "TEMP_COP.tif"
 
     cop_array, rema_array = reproject_match_tifs(
         required_cop_dem,
@@ -363,14 +375,54 @@ def query_dems(
     if not keep_temp_files:
         shutil.rmtree(temp_path, ignore_errors=True)
 
-    rema_array = np.squeeze(rema_array.to_numpy())
-    cop_array = np.squeeze(cop_array.to_numpy())
+    if return_outputs:
+        rema_array = np.squeeze(rema_array.to_numpy())
+        cop_array = np.squeeze(cop_array.to_numpy())
 
-    rema_array[rema_array == 0] = np.nan
-    rema_valid_idx = np.where(~np.isnan(rema_array))
-    rema_array_valid = rema_array[rema_valid_idx]
-    cop_array_valid = cop_array[rema_valid_idx]
+    return (rema_array, cop_array) if return_outputs else None
 
-    dem_diff = rema_array_valid - cop_array_valid
 
-    return rema_array, cop_array, rema_valid_idx, dem_diff
+def generate_metrics(
+    array1: np.ndarray | Path,
+    array2: np.ndarray | Path | None = None,
+    save_path: Path | None = None,
+) -> tuple:
+    """Generates statistical metrics
+
+    Parameters
+    ----------
+    array1 : np.ndarray | Path
+        Input array
+    array2 : np.ndarray | Path | None, optional
+        Second array, if provided the operations will be carried out on the dofference between the first array and this one, by default None
+    save_path : Path | None, optional
+        Path to dump a pickle of the results, by default None
+
+    Returns
+    -------
+    tuple
+        Statistical metrics
+    """
+    if type(array1) is Path:
+        array1 = rio.open(array1).read(1)
+    if type(array2) is Path:
+        array2 = rio.open(array2).read(1)
+
+    if array2:
+        diff_array = array1 - array2
+    else:
+        diff_array = array1
+
+    diff_array = diff_array[~np.isnan(diff_array)]
+
+    mae = diff_array.mean()
+    std = diff_array.std()
+    mse = np.square(diff_array).mean()
+    median = np.median(diff_array)
+    nmad = 1.4826 * np.median(diff_array - median)
+
+    metrics = mae, std, mse, nmad
+    if save_path:
+        with open(save_path, "wb") as f:
+            pickle.dump(metrics, f)
+    return metrics

@@ -5,11 +5,9 @@ from pathlib import Path
 import numpy as np
 import rioxarray
 import rasterio as rio
-from dem_handler.utils.spatial import crop_datasets_to_bounds, BBox
 import multiprocessing as mp
 from osgeo import gdal
-from dem_handler.utils.spatial import resize_bounds
-from dem_handler.utils.spatial import BoundingBox
+from dem_handler.utils.spatial import resize_bounds, BoundingBox
 import os
 
 TEST_PATH = Path("tests")
@@ -235,7 +233,10 @@ def build_full_mosaic(
     simple_mosaic(chunk_save_paths, save_path, resolution, bounds_scale_factor)
     if return_outputs:
         mosaic_raster = rio.open(save_path)
-        return mosaic_raster.read(1), mosaic_raster.profile
+        mosaic_array = mosaic_raster.read(1)
+        mosaic_profile = mosaic_raster.profile
+        mosaic_raster.close()
+        return mosaic_array, mosaic_profile
     else:
         return None
 
@@ -245,6 +246,7 @@ def simple_mosaic(
     save_path: Path,
     resolution: str = "lowest",
     bounds_scale_factor: float = 1.02,
+    keep_vrt: bool = False,
 ) -> None:
     """Making simple mosaic of all given raster files
 
@@ -258,12 +260,16 @@ def simple_mosaic(
         Resolution to be used, by default "lowest"
     bounds_scale_factor: float, optional
         Scales the bounds by this factor, by default 1.02
+    keep_vrt: bool, optional
+        Keeps the vrt file.
     """
     rasters = [rio.open(ds) for ds in dem_rasters]
     lefts = [r.bounds.left for r in rasters]
     rights = [r.bounds.right for r in rasters]
     bottoms = [r.bounds.bottom for r in rasters]
     tops = [r.bounds.top for r in rasters]
+    for r in rasters:
+        r.close()
     bounds = (min(lefts), min(bottoms), max(rights), max(tops))
     bounds = resize_bounds(BoundingBox(*bounds), bounds_scale_factor).bounds
     VRT_options = gdal.BuildVRTOptions(
@@ -279,9 +285,12 @@ def simple_mosaic(
     profile = src.profile
     profile.update({"driver": "GTiff"})
     array = src.read(1)
+    src.close()
     with rio.open(save_path, "w", **profile) as dst:
         dst.write(array, 1)
-    os.remove(vrt_path)
+
+    if not keep_vrt:
+        os.remove(vrt_path)
     print(f"Mosaic created.")
     return None
 
@@ -306,4 +315,5 @@ def reproject_dem(
     raster = rioxarray.open_rasterio(dem)
     raster_rep = raster.rio.reproject(f"EPSG:{target_crs}")
     raster_rep.rio.to_raster(save_path)
+    raster_rep.close()
     return None
