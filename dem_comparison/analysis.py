@@ -414,12 +414,12 @@ def generate_metrics(
         Statistical metrics
         (Mean Absolute Error, Standard Deviation of Error, Mean Squared Error, Normalised Median Absolute Deviation of Error)
     """
-    if type(array1) is Path:
+    if type(array1) is not np.ndarray:
         array1 = rio.open(array1).read(1)
-    if type(array2) is Path:
-        array2 = rio.open(array2).read(1)
 
     if array2:
+        if type(array2) is not np.ndarray:
+            array2 = rio.open(array2).read(1)
         diff_array = array1 - array2
     else:
         diff_array = array1
