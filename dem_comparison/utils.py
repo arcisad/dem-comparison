@@ -9,6 +9,7 @@ import multiprocessing as mp
 from osgeo import gdal
 from dem_handler.utils.spatial import resize_bounds, BoundingBox
 import os
+import pickle
 
 TEST_PATH = Path("tests")
 GEOID_PATH = TEST_PATH / "data/geoid/egm_08_geoid.tif"
@@ -175,6 +176,7 @@ def build_full_mosaic(
     return_outputs: bool = False,
     bounds_scale_factor: float = 1.02,
     resolution: str = "lowest",
+    fill_value: float | int | list[float] | list[int] | None = None,
 ) -> tuple[np.ndarray, Profile] | None:
     """Creates mosaic of diff arrays in batches and using multi-processing
 
@@ -198,6 +200,8 @@ def build_full_mosaic(
         Scales the bounds by this factor, by default 1.02
     resolution : str, optional
         Resolution to be used, by default "lowest"
+    fill_value: float | int | list[float] | list[int] | None, optional
+    Fills the mosaic with a singl value if provided, or fill each raster with the corresponding value from list, by default None
 
     Returns
     -------
@@ -210,12 +214,28 @@ def build_full_mosaic(
             [diff_datsets[i::batch_size] for i in range(batch_size)],
         )
     )
+    if type(fill_value) is list:
+        fill_chunks = list(
+            filter(
+                lambda el: len(el) > 0,
+                [fill_value[i::batch_size] for i in range(batch_size)],
+            )
+        )
+
     chunk_save_paths = [temp_save_dir / f"chunk_{i}" for i in range(len(chunks))]
     if num_cpus == 1:
         for i, chunk in enumerate(chunks):
-            simple_mosaic(chunk, chunk_save_paths[i], resolution, bounds_scale_factor)
+            simple_mosaic(
+                chunk,
+                chunk_save_paths[i],
+                resolution,
+                bounds_scale_factor,
+                fill_value=fill_chunks[i] if type(fill_value) is list else fill_value,
+            )
     else:
         with mp.Pool(processes=num_cpus) as p:
+            if type(fill_value) is not list:
+                fill_chunks = [fill_value] * len(chunks)
             p.starmap(
                 simple_mosaic,
                 [
@@ -224,8 +244,9 @@ def build_full_mosaic(
                         el[1],
                         resolution,
                         bounds_scale_factor,
+                        False,
                     )
-                    for el in list(zip(chunks, chunk_save_paths))
+                    for el in list(zip(chunks, chunk_save_paths, fill_chunks))
                 ],
                 chunksize=mp_chunk_size,
             )
@@ -247,6 +268,7 @@ def simple_mosaic(
     resolution: str = "lowest",
     bounds_scale_factor: float = 1.02,
     keep_vrt: bool = False,
+    fill_value: float | int | list[float] | list[int] | None = None,
 ) -> None:
     """Making simple mosaic of all given raster files
 
@@ -262,12 +284,30 @@ def simple_mosaic(
         Scales the bounds by this factor, by default 1.02
     keep_vrt: bool, optional
         Keeps the vrt file.
+    fill_value: float | int | list[float] | list[int] | None, optional
+    Fills the mosaic with a singl value if provided, or fill each raster with the corresponding value from list, by default None
     """
     rasters = [rio.open(ds) for ds in dem_rasters]
     lefts = [r.bounds.left for r in rasters]
     rights = [r.bounds.right for r in rasters]
     bottoms = [r.bounds.bottom for r in rasters]
     tops = [r.bounds.top for r in rasters]
+    profiles = [r.profile for r in rasters]
+
+    if type(fill_value) is list:
+        temp_dir = Path("temp_filled_rasters_dir")
+        temp_dir.mkdir(exist_ok=True)
+        for i in range(len(rasters)):
+            img = rasters[i].read(1)
+            img[~np.isnan(img)] = fill_value[i]
+            temp_path = temp_dir / f"raster_filles_{i}.tif"
+            r_profile = profiles[i]
+            r_profile.update({"count": 3})
+            with rio.open(temp_path, "w", **r_profile) as ds:
+                for j in range(r_profile["count"]):
+                    ds.write(img, j + 1)
+            dem_rasters[i] = temp_path
+
     for r in rasters:
         r.close()
     bounds = (min(lefts), min(bottoms), max(rights), max(tops))
@@ -285,9 +325,13 @@ def simple_mosaic(
     profile = src.profile
     profile.update({"driver": "GTiff"})
     array = src.read(1)
+    if (type(fill_value) is float) or (type(fill_value) is int):
+        array[~np.isnan(array)] = fill_value
+        profile.update({"count": 3})
     src.close()
     with rio.open(save_path, "w", **profile) as dst:
-        dst.write(array, 1)
+        for i in range(profile["count"]):
+            dst.write(array, i + 1)
 
     if not keep_vrt:
         os.remove(vrt_path)
@@ -317,3 +361,35 @@ def reproject_dem(
     raster_rep.rio.to_raster(save_path)
     raster_rep.close()
     return None
+
+
+def read_metrics(metric_files: list[Path]) -> tuple:
+    """Reads metrics from pickle files
+
+    Parameters
+    ----------
+    metric_files : list[Path]
+        List of Paths to pickle files
+
+    Returns
+    -------
+    tuple
+        Metrics
+    """
+    data = []
+    for pkl in metric_files:
+        with open(pkl, "rb") as f:
+            data.append(pickle.load(f))
+    x = []
+    y = []
+    for pkl in metric_files:
+        parts = str(Path(pkl).stem).split("_")
+        x.append(parts[3])
+        y.append(parts[4])
+
+    mae = [i[0] for i in data]
+    std = [i[1] for i in data]
+    mse = [i[2] for i in data]
+    nmad = [i[3] for i in data]
+
+    return [mae, std, mse, nmad], x, y
