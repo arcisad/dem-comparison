@@ -1,6 +1,7 @@
 import plotly.graph_objects as go
 import pickle
 from pathlib import Path
+from dem_comparison.utils import read_metrics
 
 
 def plot_metrics(
@@ -21,23 +22,9 @@ def plot_metrics(
     go.Figure
         Plotly figure
     """
-    data = []
-    for pkl in metric_files:
-        with open(pkl, "rb") as f:
-            data.append(pickle.load(f))
-    x = []
-    y = []
-    for pkl in metric_files:
-        parts = str(Path(pkl).stem).split("_")
-        x.append(parts[3])
-        y.append(parts[4])
 
-    mae = [i[0] for i in data]
-    std = [i[1] for i in data]
-    mse = [i[2] for i in data]
-    nmad = [i[3] for i in data]
     labels = ["MAE" if is_error else "MEAN", "STD", "MSE", "NMAD"]
-    metrics = [mae, std, mse, nmad]
+    metrics, x, y = read_metrics(metric_files)
     # buttons to create
     buttons = [
         {
