@@ -10,6 +10,7 @@ from osgeo import gdal
 from dem_handler.utils.spatial import resize_bounds, BoundingBox
 import os
 import pickle
+import shutil
 
 TEST_PATH = Path("tests")
 GEOID_PATH = TEST_PATH / "data/geoid/egm_08_geoid.tif"
@@ -335,6 +336,8 @@ def simple_mosaic(
 
     if not keep_vrt:
         os.remove(vrt_path)
+
+    shutil.rmtree("temp_filled_rasters_dir", ignore_errors=True)
     print(f"Mosaic created.")
     return None
 
