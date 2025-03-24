@@ -7,10 +7,12 @@ from dem_handler.dem.rema import get_rema_dem_for_bounds
 from dem_handler.dem.geoid import remove_geoid
 from dem_handler.dem.cop_glo30 import get_cop30_dem_for_bounds
 from dem_handler.download.aws import download_egm_08_geoid
+from dem_handler.download.aws import download_rema_tiles, download_cop_glo30_tiles
 import multiprocessing as mp
 from itertools import product
 import shutil
 import pickle
+import geopandas as gpd
 
 
 def analyse_difference(
@@ -26,6 +28,7 @@ def analyse_difference(
     query_num_cpus: int = 1,
     query_num_tasks: int | None = -1,
     return_outputs: bool = False,
+    download_files_first: bool = True,
 ) -> tuple | None:
     """Analyse the difference between REMA and COP30 DEMs
 
@@ -57,6 +60,8 @@ def analyse_difference(
         If set to -1, all DEMs will be downloaded in async mode in on single task on one cpu only.
     return_outputs: bool, optional
         Returns the output of anlysis, by default Fasle.
+    download_files_first, bool, optional
+        Downloads all the required input files first, by default True
 
     Returns
     -------
@@ -88,6 +93,7 @@ def analyse_difference(
             mp_chunk_size=mp_chunk_size,
             query_num_cpus=query_num_cpus,
             query_num_tasks=query_num_tasks,
+            download_files_first=download_files_first,
         )
 
         if return_outputs:
@@ -120,6 +126,7 @@ def analyse_difference_for_interval(
     query_num_tasks: int | None = -1,
     keep_temp_files: bool = False,
     return_outputs: bool = False,
+    download_files_first: bool = True,
 ) -> tuple | None:
     """Analyse the difference between REMA and COP30 DEMs fir the given interval in degrees.
 
@@ -157,6 +164,8 @@ def analyse_difference_for_interval(
         Flag to keep temporary files, by default False.
     return_outputs: bool, optional
         Returns the output of anlysis, by default False.
+    download_files_first, bool, optional
+        Downloads all the required input files first, by default True
 
     Returns
     -------
@@ -187,6 +196,68 @@ def analyse_difference_for_interval(
         for c in combinations
     ]
 
+    if download_files_first:
+        cop_download_dir = temp_path / "COP_DEMS"
+        if not cop_download_dir.exists():
+            cop_download_dir.mkdir(exist_ok=True)
+
+        full_cop_dem_paths = []
+        full_rema_dem_paths = []
+        for bounds in bounds_list:
+            cop_dem_paths = get_cop30_dem_for_bounds(
+                bounds,
+                save_path=temp_path / "TEMP_COP.tif",
+                ellipsoid_heights=False,
+                cop30_index_path=cop30_index_path,
+                download_dir=temp_path / "COP_DEMS",
+                return_paths=True,
+                download_dem_tiles=True,
+                num_tasks=-1,
+            )
+            full_cop_dem_paths.extend(cop_dem_paths)
+
+            rema_dem_paths = get_rema_dem_for_bounds(
+                resize_bounds(bounds, 10.0),
+                save_path=temp_path / "TEMP_REMA.tif",
+                rema_index_path=rema_index_path,
+                resolution=rema_resolution,
+                bounds_src_crs=4326,
+                ellipsoid_heights=False,
+                download_dir=temp_path / "REMA_DEMS",
+                return_paths=True,
+                num_tasks=-1,
+            )
+            full_rema_dem_paths.extend(rema_dem_paths)
+
+        full_cop_dem_paths = np.unique(full_cop_dem_paths).tolist()
+        to_download = [f for f in full_cop_dem_paths if not f.exists()]
+        print(f"Num COP DEMs to download: {len(to_download)}")
+        if len(to_download) > 0:
+            download_cop_glo30_tiles(
+                [Path(url.name) for url in to_download],
+                save_folder=temp_path / "COP_DEMS",
+                num_cpus=num_cpus,
+                num_tasks=num_cpus,
+            )
+
+        rema_layer = f"REMA_Mosaic_Index_v2_{rema_resolution}m"
+        rema_index_df = gpd.read_file(rema_index_path, layer=rema_layer)
+        full_rema_dem_paths = np.unique(full_rema_dem_paths).tolist()
+        to_download = [f for f in full_rema_dem_paths if not f.exists()]
+        print(f"Num REMA DEMs to download: {len(to_download)}")
+        rema_file_names = [f.name for f in to_download]
+        rema_urls = [
+            Path(url)
+            for url in rema_index_df.s3url
+            if Path(url.replace(".json", "_dem.tif")).name in rema_file_names
+        ]
+        download_rema_tiles(
+            rema_urls,
+            save_folder=temp_path / "REMA_DEMS",
+            num_cpus=num_cpus,
+            num_tasks=num_cpus,
+        )
+
     if use_multiprocessing:
         with mp.Pool(processes=num_cpus) as p:
             try:
@@ -204,15 +275,18 @@ def analyse_difference_for_interval(
                             None,
                             query_num_cpus,
                             query_num_tasks,
-                            keep_temp_files,
+                            True,
+                            return_outputs,
+                            download_files_first,
                         )
                         for bounds in bounds_list
                     ],
                     chunksize=mp_chunk_size,
                 )
-                outputs = list(filter(lambda el: all(i for i in el), outputs))
-                rema_array_list = [o[0] for o in outputs]
-                cop_array_list = [o[1] for o in outputs]
+                if return_outputs:
+                    outputs = list(filter(lambda el: all(i for i in el), outputs))
+                    rema_array_list = [o[0] for o in outputs]
+                    cop_array_list = [o[1] for o in outputs]
             except Exception as e:
                 raise e
     else:
@@ -228,12 +302,16 @@ def analyse_difference_for_interval(
                 save_dir_path,
                 num_cpus=query_num_cpus,
                 num_tasks=query_num_tasks,
-                keep_temp_files=keep_temp_files,
+                keep_temp_files=True,
                 return_outputs=return_outputs,
+                download_files_first=download_files_first,
             )
             if return_outputs and (outputs[0] is not None):
                 rema_array_list.append(outputs[0])
                 cop_array_list.append(outputs[1])
+
+    if not keep_temp_files:
+        shutil.rmtree(temp_path, ignore_errors=True)
 
     return (rema_array_list, cop_array_list) if return_outputs else None
 
@@ -251,6 +329,7 @@ def query_dems(
     num_tasks: int | None = None,
     keep_temp_files: bool = False,
     return_outputs: bool = True,
+    download_files_first: bool = True,
 ) -> tuple | None:
     """Finds the DEMs for a given bounds
 
@@ -278,6 +357,8 @@ def query_dems(
         Flag to keep temporary files, by default False.
     return_outputs: bool, optional
         Returns the output of anlysis, by default True.
+    download_files_first, bool, optional
+        Downloads all the required input files first, by default True
 
     Returns
     -------
@@ -303,7 +384,10 @@ def query_dems(
         ellipsoid_heights=False,
         num_cpus=num_cpus,
         num_tasks=num_tasks,
-        return_paths=True,
+        local_dem_dir=(
+            Path(temp_path.parts[0]) / "REMA_DEMS" if download_files_first else None
+        ),
+        return_paths=False,
     )
     if len(downloaded_rema_files) == 0:
         return tuple([None] * 4)
@@ -327,8 +411,12 @@ def query_dems(
         save_path=temp_path / "TEMP_COP.tif",
         ellipsoid_heights=False,
         cop30_index_path=cop30_index_path,
-        download_dem_tiles=True,
-        return_paths=True,
+        cop30_folder_path=(
+            Path(temp_path.parts[0]) / "COP_DEMS" if download_files_first else Path(".")
+        ),
+        download_dem_tiles=not download_files_first,
+        return_paths=False,
+        num_tasks=-1 if download_files_first else None,
     )
     if len(downloaded_cop_files) == 0:
         return tuple([None] * 4)
@@ -381,29 +469,37 @@ def query_dems(
             np.squeeze(diff_array.to_numpy()),
             save_path=save_dir_path / f"dem_diff_metrics_{top_left_str}.pkl",
         )
+        diff_array.close()
+        del diff_array
 
     if not keep_temp_files:
-        shutil.rmtree(temp_path, ignore_errors=True)
+        shutil.rmtree(temp_path.parts[0])
 
     if return_outputs:
         rema_array = np.squeeze(rema_array.to_numpy())
         cop_array = np.squeeze(cop_array.to_numpy())
+    else:
+        rema_array.close()
+        cop_array.close()
+
+        del rema_array
+        del cop_array
 
     return (rema_array, cop_array) if return_outputs else None
 
 
 def generate_metrics(
-    array1: np.ndarray | Path,
-    array2: np.ndarray | Path | None = None,
+    dataset1: np.ndarray | Path,
+    dataset2: np.ndarray | Path | None = None,
     save_path: Path | None = None,
 ) -> tuple:
     """Generates statistical metrics for an error array, or a calculated error array if `array2` is provided.
 
     Parameters
     ----------
-    array1 : np.ndarray | Path
+    dataset1 : np.ndarray | Path
         Input array
-    array2 : np.ndarray | Path | None, optional
+    dataset1 : np.ndarray | Path | None, optional
         Second array, if provided the operations will be carried out on the dofference between the first array and this one, by default None
     save_path : Path | None, optional
         Path to dump a pickle of the results, by default None
@@ -414,12 +510,18 @@ def generate_metrics(
         Statistical metrics
         (Mean Absolute Error, Standard Deviation of Error, Mean Squared Error, Normalised Median Absolute Deviation of Error)
     """
-    if type(array1) is not np.ndarray:
-        array1 = rio.open(array1).read(1)
+    if type(dataset1) is not np.ndarray:
+        with rio.open(dataset1, "r") as ds:
+            array1 = ds.read(1)
+    else:
+        array1 = dataset1
 
-    if array2:
-        if type(array2) is not np.ndarray:
-            array2 = rio.open(array2).read(1)
+    if dataset2:
+        if type(dataset2) is not np.ndarray:
+            with rio.open(dataset2, "r") as ds:
+                array2 = ds.read(1)
+        else:
+            array2 = dataset2
         diff_array = array1 - array2
     else:
         diff_array = array1
