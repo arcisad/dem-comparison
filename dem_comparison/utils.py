@@ -366,13 +366,15 @@ def reproject_dem(
     return None
 
 
-def read_metrics(metric_files: list[Path]) -> tuple:
+def read_metrics(metric_files: list[Path], numerical_axes: bool = False) -> tuple:
     """Reads metrics from pickle files
 
     Parameters
     ----------
     metric_files : list[Path]
         List of Paths to pickle files
+    numerical_axes : bool, optional
+        Returns axes in numeric format, by default False
 
     Returns
     -------
@@ -387,8 +389,12 @@ def read_metrics(metric_files: list[Path]) -> tuple:
     y = []
     for pkl in metric_files:
         parts = str(Path(pkl).stem).split("_")
-        x.append(parts[3])
-        y.append(parts[4])
+        if numerical_axes:
+            x.append(int(parts[3][:-1]))
+            y.append(int(parts[4][:-1]))
+        else:
+            x.append(parts[3])
+            y.append(parts[4])
 
     mae = [i[0] for i in data]
     std = [i[1] for i in data]

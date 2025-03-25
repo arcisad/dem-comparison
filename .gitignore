@@ -26,3 +26,6 @@ build
 
 # ignore notebooks
 *.ipynb
+
+# temporary files
+temp/*

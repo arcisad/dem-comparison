@@ -27,7 +27,7 @@ analyse_difference_for_interval(
 
 ```bash
 git clone ...
-conda create --file environment.yaml
+conda env create --file environment.yaml
 conda activate dem-comparison
 pip install -e .
 ```
