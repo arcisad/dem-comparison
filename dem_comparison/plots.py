@@ -26,7 +26,7 @@ def plot_metrics(
         Plotly figure
     """
 
-    labels = ["MAE" if is_error else "MEAN", "STD", "MSE", "NMAD"]
+    labels = ["ME" if is_error else "MEAN", "STD", "MSE", "NMAD"]
     metrics, x, y = read_metrics(metric_files, numerical_axes=polar)
     # buttons to create
     buttons = [

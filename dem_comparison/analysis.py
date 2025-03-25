@@ -423,17 +423,8 @@ def query_dems(
 
     required_cop_dem = temp_path / "TEMP_COP.tif"
     if len(downloaded_cop_files) == 1:
-        temp_cop_dem = downloaded_cop_files[0]
-        required_cop_dem = temp_cop_dem
+        required_cop_dem = downloaded_cop_files[0]
         print(f"Required COP DEM: {required_cop_dem}")
-    else:
-        temp_cop_dem_raster = required_cop_dem
-        temp_cop_dem_profile = temp_cop_dem_raster.profile
-        temp_cop_dem_profile.update({"nodata": np.nan})
-        temp_cop_dem_array = temp_cop_dem_raster.read(1)
-        temp_cop_dem_raster.close()
-        with rio.open(temp_path / "TEMP_COP.tif", "w", **temp_cop_dem_profile) as ds:
-            ds.write(temp_cop_dem_array, 1)
 
     geoid_tif_path = temp_path / "geoid.tif"
     if not geoid_tif_path.exists():
@@ -442,14 +433,18 @@ def query_dems(
     temp_cop_dem_raster = rio.open(required_cop_dem)
     temp_cop_dem_profile = temp_cop_dem_raster.profile
     temp_cop_dem_array = temp_cop_dem_raster.read(1)
+    if len(downloaded_cop_files) > 1:
+        temp_cop_dem_profile.update({"nodata": np.nan})
+        temp_cop_dem_array[temp_cop_dem_array == 0] = np.nan
     temp_cop_dem_raster.close()
     remove_geoid(
         dem_array=temp_cop_dem_array,
         dem_profile=temp_cop_dem_profile,
         geoid_path=geoid_tif_path,
         buffer_pixels=2,
-        save_path=temp_path / "TEMP_COP.tif",
+        save_path=temp_path / "TEMP_COP_ELLIPSOID.tif",
     )
+    required_cop_dem = temp_path / "TEMP_COP_ELLIPSOID.tif"
 
     cop_array, rema_array = reproject_match_tifs(
         required_cop_dem,
@@ -528,13 +523,13 @@ def generate_metrics(
 
     diff_array = diff_array[~np.isnan(diff_array)]
 
-    mae = diff_array.mean()
+    me = diff_array.mean()
     std = diff_array.std()
     mse = np.square(diff_array).mean()
     median = np.median(diff_array)
     nmad = 1.4826 * np.median(np.abs(diff_array - median))
 
-    metrics = mae, std, mse, nmad
+    metrics = me, std, mse, nmad
     if save_path:
         with open(save_path, "wb") as f:
             pickle.dump(metrics, f)

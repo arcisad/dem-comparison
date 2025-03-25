@@ -392,9 +392,9 @@ def read_metrics(metric_files: list[Path], numerical_axes: bool = False) -> tupl
             x.append(parts[3])
             y.append(parts[4])
 
-    mae = [i[0] for i in data]
+    me = [i[0] for i in data]
     std = [i[1] for i in data]
     mse = [i[2] for i in data]
     nmad = [i[3] for i in data]
 
-    return [mae, std, mse, nmad], x, y
+    return [me, std, mse, nmad], x, y
