@@ -12,8 +12,21 @@ import logging
 import os
 from dem_comparison.utils import simple_mosaic, read_metrics
 import glob
+from dem_handler.download.aio_aws import bulk_upload_dem_tiles
+from pathlib import Path
+import aioboto3
+import yaml
 
 logging.basicConfig(level=logging.INFO)
+
+yaml_file = input("Enter path to credential file:")
+with open(yaml_file) as f:
+    cred_dict = yaml.safe_load(f)
+
+AWS_ACCESS_KEY_ID = cred_dict["AWS_ACCESS_KEY_ID"]
+AWS_SECRET_ACCESS_KEY = cred_dict["AWS_SECRET_ACCESS_KEY"]
+AWS_DEFAULT_REGION = cred_dict["AWS_DEFAULT_REGION"]
+
 
 location_dict = {
     "Casey": 0,
@@ -68,20 +81,35 @@ analyse_difference_for_interval(
 )
 
 os.makedirs(f"{location_name}_Outputs/{location_name}_mosaics", exist_ok=True)
-diff_arrays = [Path(p) for p in glob.glob(f"{location_name}_Outputs/*.tif")]
+diff_arrays = [Path(p) for p in glob.glob(f"{location_name}_Outputs/dem_diff/*.tif")]
 diff_mos = Path(f"{location_name}_Outputs/{location_name}_mosaics/diff_mos.tif")
 if diff_mos.exists():
     os.remove(diff_mos)
 simple_mosaic(diff_arrays, diff_mos)
 
 
-pkls = sorted(glob.glob(f"{location_name}_Outputs/dem_diff**.pkl"))
+pkls = sorted(glob.glob(f"{location_name}_Outputs/dem_diff_metrics/*.pkl"))
 metrics, x, y = read_metrics(pkls)
 metric_strs = ["me", "std", "mse", "nmad"]
 for i, m in enumerate(metrics):
-    dems = sorted(glob.glob(f"{location_name}_Outputs/dem_diff**.tif"))
+    dems = sorted(glob.glob(f"{location_name}_Outputs/dem_diff/*.tif"))
     simple_mosaic(
         dems,
         f"{location_name}_Outputs/{location_name}_mosaics/dem_mos_{metric_strs[i]}.tif",
         fill_value=m,
     )
+
+
+session = aioboto3.Session(
+    aws_access_key_id=AWS_ACCESS_KEY_ID,
+    aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+    region_name=AWS_DEFAULT_REGION,
+)
+s3_dir = Path(f"dem_comparison_results/{location_name}_Outputs")
+local_dir = Path(f"{location_name}_Outputs")
+bulk_upload_dem_tiles(
+    s3_dir,
+    local_dir,
+    session=session,
+    num_cpus=4,
+)
