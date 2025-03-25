@@ -167,102 +167,6 @@ def reproject_match_tifs(
     return tif_1_matched, tif_2_matched
 
 
-def build_full_mosaic(
-    diff_datsets: list,
-    num_cpus: int = 1,
-    batch_size: int = 20,
-    mp_chunk_size: int = 20,
-    temp_save_dir: Path = Path("chunks_temp_dir"),
-    save_path: Path | None = None,
-    return_outputs: bool = False,
-    bounds_scale_factor: float = 1.02,
-    resolution: str = "lowest",
-    fill_value: float | int | list[float] | list[int] | None = None,
-) -> tuple[np.ndarray, Profile] | None:
-    """Creates mosaic of diff arrays in batches and using multi-processing
-
-    Parameters
-    ----------
-    diff_datsets : list
-        List of paths to diff arrays
-    num_cpus : int, optional
-        Number of cpus, by default 1
-    batch_size : int, optional
-        Batch size for data processing, by default 20
-    mp_chunk_size : int, optional
-        Multi-processing chunk size, by default 20
-    temp_save_dir : Path, optional
-        Temporary save directory, by default Path("chunks_temp_dir")
-    save_path : Path | None, optional
-        Path to save final output, by default None
-    return_outputs : bool, optional
-        Returns the output array and profile, by default False
-    bounds_scale_factor: float, optional
-        Scales the bounds by this factor, by default 1.02
-    resolution : str, optional
-        Resolution to be used, by default "lowest"
-    fill_value: float | int | list[float] | list[int] | None, optional
-    Fills the mosaic with a singl value if provided, or fill each raster with the corresponding value from list, by default None
-
-    Returns
-    -------
-    tuple[np.ndarray, Profile] | None
-        Returns the output array and profile if `return_outputs` is set, otherwise, returns None.
-    """
-    chunks = list(
-        filter(
-            lambda el: len(el) > 0,
-            [diff_datsets[i::batch_size] for i in range(batch_size)],
-        )
-    )
-    if type(fill_value) is list:
-        fill_chunks = list(
-            filter(
-                lambda el: len(el) > 0,
-                [fill_value[i::batch_size] for i in range(batch_size)],
-            )
-        )
-
-    chunk_save_paths = [temp_save_dir / f"chunk_{i}" for i in range(len(chunks))]
-    if num_cpus == 1:
-        for i, chunk in enumerate(chunks):
-            simple_mosaic(
-                chunk,
-                chunk_save_paths[i],
-                resolution,
-                bounds_scale_factor,
-                fill_value=fill_chunks[i] if type(fill_value) is list else fill_value,
-            )
-    else:
-        with mp.Pool(processes=num_cpus) as p:
-            if type(fill_value) is not list:
-                fill_chunks = [fill_value] * len(chunks)
-            p.starmap(
-                simple_mosaic,
-                [
-                    (
-                        el[0],
-                        el[1],
-                        resolution,
-                        bounds_scale_factor,
-                        False,
-                    )
-                    for el in list(zip(chunks, chunk_save_paths, fill_chunks))
-                ],
-                chunksize=mp_chunk_size,
-            )
-
-    simple_mosaic(chunk_save_paths, save_path, resolution, bounds_scale_factor)
-    if return_outputs:
-        mosaic_raster = rio.open(save_path)
-        mosaic_array = mosaic_raster.read(1)
-        mosaic_profile = mosaic_raster.profile
-        mosaic_raster.close()
-        return mosaic_array, mosaic_profile
-    else:
-        return None
-
-
 def simple_mosaic(
     dem_rasters: list[Path],
     save_path: Path,
@@ -286,7 +190,7 @@ def simple_mosaic(
     keep_vrt: bool, optional
         Keeps the vrt file.
     fill_value: float | int | list[float] | list[int] | None, optional
-    Fills the mosaic with a singl value if provided, or fill each raster with the corresponding value from list, by default None
+        Fills the mosaic with a singl value if provided, or fill each raster with the corresponding value from list, by default None
     """
     rasters = [rio.open(ds) for ds in dem_rasters]
     lefts = [r.bounds.left for r in rasters]

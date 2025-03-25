@@ -13,6 +13,8 @@ from itertools import product
 import shutil
 import pickle
 import geopandas as gpd
+from dem_handler.download.aio_aws import bulk_upload_dem_tiles
+import aioboto3
 
 
 def analyse_difference(
@@ -29,6 +31,7 @@ def analyse_difference(
     query_num_tasks: int | None = -1,
     return_outputs: bool = False,
     download_files_first: bool = True,
+    session: aioboto3.Session | None = None,
 ) -> tuple | None:
     """Analyse the difference between REMA and COP30 DEMs
 
@@ -62,6 +65,8 @@ def analyse_difference(
         Returns the output of anlysis, by default Fasle.
     download_files_first, bool, optional
         Downloads all the required input files first, by default True
+    session: aioboto3.Session | None, optional
+        If passed (with right credentials), the results will be uploaded to s3 and the local data will be removed, by default None
 
     Returns
     -------
@@ -95,6 +100,17 @@ def analyse_difference(
             query_num_tasks=query_num_tasks,
             download_files_first=download_files_first,
         )
+
+        if session:
+            s3_dir = Path(f"dem_comparison_results/{save_dir_path}")
+            local_dir = Path(save_dir_path)
+            bulk_upload_dem_tiles(
+                s3_dir,
+                local_dir,
+                session=session,
+                num_cpus=num_cpus,
+            )
+            shutil.rmtree(save_dir_path)
 
         if return_outputs:
             final_rema_array_list.append(outputs[0])
@@ -374,10 +390,10 @@ def query_dems(
 
     if save_dir_path:
         original_rema_metrics_path = (
-            save_dir_path / f"original_rema_metrics_{top_left_str}.pkl"
+            save_dir_path / f"original_rema_metrics/{top_left_str}.pkl"
         )
-        output_dem_diff_path = save_dir_path / f"dem_diff_{top_left_str}.tif"
-        output_dem_metrics_path = save_dir_path / f"dem_diff_metrics_{top_left_str}.pkl"
+        output_dem_diff_path = save_dir_path / f"dem_diff/{top_left_str}.tif"
+        output_dem_metrics_path = save_dir_path / f"dem_diff_metrics/{top_left_str}.pkl"
         if (
             (original_rema_metrics_path.exists())
             and (output_dem_diff_path.exists())
