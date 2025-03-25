@@ -372,6 +372,22 @@ def query_dems(
     top_left_str = f"{int(np.abs(np.round(original_bounds.ymin)))}{north_south}_{int(np.abs(np.round(original_bounds.xmin)))}{east_west}"
     temp_path = temp_path / top_left_str
 
+    if save_dir_path:
+        original_rema_metrics_path = (
+            save_dir_path / f"original_rema_metrics_{top_left_str}.pkl"
+        )
+        output_dem_diff_path = save_dir_path / f"dem_diff_{top_left_str}.tif"
+        output_dem_metrics_path = save_dir_path / f"dem_diff_metrics_{top_left_str}.pkl"
+        if (
+            (original_rema_metrics_path.exists())
+            and (output_dem_diff_path.exists())
+            and (output_dem_metrics_path.exists())
+        ):
+            print(
+                f"All files for tile with top left of {top_left_str} already exist. Skipping..."
+            )
+            return tuple([None] * 4)
+
     if not temp_path.exists():
         temp_path.mkdir(exist_ok=True)
 
@@ -403,7 +419,7 @@ def query_dems(
             save_dir_path.mkdir(exist_ok=True)
         generate_metrics(
             required_rema_dem,
-            save_path=save_dir_path / f"original_rema_metrics_{top_left_str}.pkl",
+            save_path=original_rema_metrics_path,
         )
 
     _, _, downloaded_cop_files = get_cop30_dem_for_bounds(
@@ -456,13 +472,12 @@ def query_dems(
         save_path_2=rema_save_path if rema_save_path else "",
     )
     if save_dir_path:
-        diff_array_save_path = save_dir_path / f"dem_diff_{top_left_str}.tif"
         diff_array = rema_array - cop_array
         diff_array.rio.write_nodata(np.nan, inplace=True)
-        diff_array.rio.to_raster(diff_array_save_path)
+        diff_array.rio.to_raster(output_dem_diff_path)
         generate_metrics(
             np.squeeze(diff_array.to_numpy()),
-            save_path=save_dir_path / f"dem_diff_metrics_{top_left_str}.pkl",
+            save_path=output_dem_metrics_path,
         )
         diff_array.close()
         del diff_array
