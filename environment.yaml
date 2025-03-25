@@ -18,4 +18,5 @@ dependencies:
     - nbformat==5.10.4
     - matplotlib==3.10.1
     - black==25.1.0
+    - pyyaml==6.0.2
     - git+https://github.com/GeoscienceAustralia/dem-handler.git
