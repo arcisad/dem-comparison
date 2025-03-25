@@ -303,14 +303,12 @@ def simple_mosaic(
             img[~np.isnan(img)] = fill_value[i]
             temp_path = temp_dir / f"raster_filles_{i}.tif"
             r_profile = profiles[i]
-            r_profile.update({"count": 3})
             with rio.open(temp_path, "w", **r_profile) as ds:
-                for j in range(r_profile["count"]):
-                    ds.write(img, j + 1)
+                ds.write(img, 1)
             dem_rasters[i] = temp_path
-
     for r in rasters:
         r.close()
+
     bounds = (min(lefts), min(bottoms), max(rights), max(tops))
     bounds = resize_bounds(BoundingBox(*bounds), bounds_scale_factor).bounds
     VRT_options = gdal.BuildVRTOptions(
@@ -328,11 +326,9 @@ def simple_mosaic(
     array = src.read(1)
     if (type(fill_value) is float) or (type(fill_value) is int):
         array[~np.isnan(array)] = fill_value
-        profile.update({"count": 3})
     src.close()
     with rio.open(save_path, "w", **profile) as dst:
-        for i in range(profile["count"]):
-            dst.write(array, i + 1)
+        dst.write(array, 1)
 
     if not keep_vrt:
         os.remove(vrt_path)
