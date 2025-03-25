@@ -422,7 +422,7 @@ def query_dems(
         ),
         return_paths=False,
     )
-    if len(downloaded_rema_files) == 0:
+    if (downloaded_rema_files is None) or (len(downloaded_rema_files) == 0):
         return tuple([None] * 4)
 
     if len(downloaded_rema_files) > 1:

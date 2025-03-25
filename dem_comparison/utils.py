@@ -290,11 +290,11 @@ def read_metrics(metric_files: list[Path], numerical_axes: bool = False) -> tupl
     for pkl in metric_files:
         parts = str(Path(pkl).stem).split("_")
         if numerical_axes:
-            x.append(int(parts[3][:-1]))
-            y.append(int(parts[4][:-1]))
+            x.append(int(parts[0][:-1]))
+            y.append(int(parts[1][:-1]))
         else:
-            x.append(parts[3])
-            y.append(parts[4])
+            x.append(parts[0])
+            y.append(parts[1])
 
     me = [i[0] for i in data]
     std = [i[1] for i in data]
