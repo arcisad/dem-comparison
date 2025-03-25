@@ -8,6 +8,7 @@ def plot_metrics(
     metric_files: list[Path],
     is_error: bool = True,
     polar: bool = False,
+    save_path: Path | None = None,
 ) -> go.Figure:
     """Plots the metrics for the DEMS as an interactive plot
 
@@ -19,6 +20,8 @@ def plot_metrics(
         If the data is an error(DEMs difference) array or a single DEM, by default True
     polar: bool, optional
         Polar plot, by default False
+    save_path: Path | None, optional,
+        Path to save the html plot, by default None
 
     Returns
     -------
@@ -75,5 +78,8 @@ def plot_metrics(
             )
 
     fig.update_layout(updatemenus=updatemenu)
+
+    if save_path:
+        fig.write_html(save_path)
 
     return fig

@@ -1,4 +1,5 @@
 import sys
+
 sys.path.insert(1, "../")
 
 from dem_comparison.analysis import analyse_difference_for_interval
@@ -76,10 +77,11 @@ simple_mosaic(diff_arrays, diff_mos)
 
 pkls = sorted(glob.glob(f"{location_name}_Outputs/dem_diff**.pkl"))
 metrics, x, y = read_metrics(pkls)
-dems = sorted(glob.glob(f"{location_name}_Outputs/dem_diff**.tif"))
 metric_strs = ["me", "std", "mse", "nmad"]
-simple_mosaic(
-    dems,
-    f"{location_name}_Outputs/{location_name}_mosaics/dem_mos_{metric_strs[0]}.tif",
-    fill_value=metrics[0],
-)
+for i, m in enumerate(metrics):
+    dems = sorted(glob.glob(f"{location_name}_Outputs/dem_diff**.tif"))
+    simple_mosaic(
+        dems,
+        f"{location_name}_Outputs/{location_name}_mosaics/dem_mos_{metric_strs[i]}.tif",
+        fill_value=m,
+    )
