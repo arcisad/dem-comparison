@@ -215,7 +215,7 @@ def analyse_difference_for_interval(
     if download_files_first:
         cop_download_dir = temp_path / "COP_DEMS"
         if not cop_download_dir.exists():
-            cop_download_dir.mkdir(exist_ok=True)
+            cop_download_dir.mkdir(parents=True, exist_ok=True)
 
         full_cop_dem_paths = []
         full_rema_dem_paths = []
@@ -258,6 +258,7 @@ def analyse_difference_for_interval(
 
         rema_layer = f"REMA_Mosaic_Index_v2_{rema_resolution}m"
         rema_index_df = gpd.read_file(rema_index_path, layer=rema_layer)
+        full_rema_dem_paths = list(filter(lambda x: x, full_rema_dem_paths))
         full_rema_dem_paths = np.unique(full_rema_dem_paths).tolist()
         to_download = [f for f in full_rema_dem_paths if not f.exists()]
         print(f"Num REMA DEMs to download: {len(to_download)}")
@@ -405,7 +406,7 @@ def query_dems(
             return tuple([None] * 4)
 
     if not temp_path.exists():
-        temp_path.mkdir(exist_ok=True)
+        temp_path.mkdir(parents=True, exist_ok=True)
 
     _, _, downloaded_rema_files = get_rema_dem_for_bounds(
         original_bounds,
@@ -431,8 +432,8 @@ def query_dems(
         print(f"Required REMA DEM: {required_rema_dem}")
 
     if save_dir_path:
-        if not save_dir_path.exists():
-            save_dir_path.mkdir(exist_ok=True)
+        if not original_rema_metrics_path.parent.exists():
+            original_rema_metrics_path.parent.mkdir(parents=True, exist_ok=True)
         generate_metrics(
             required_rema_dem,
             save_path=original_rema_metrics_path,
@@ -488,9 +489,13 @@ def query_dems(
         save_path_2=rema_save_path if rema_save_path else "",
     )
     if save_dir_path:
+        if not output_dem_diff_path.parent.exists():
+            output_dem_diff_path.parent.mkdir(parents=True, exist_ok=True)
         diff_array = rema_array - cop_array
         diff_array.rio.write_nodata(np.nan, inplace=True)
         diff_array.rio.to_raster(output_dem_diff_path)
+        if not output_dem_metrics_path.parent.exists():
+            output_dem_metrics_path.parent.mkdir(parents=True, exist_ok=True)
         generate_metrics(
             np.squeeze(diff_array.to_numpy()),
             save_path=output_dem_metrics_path,
