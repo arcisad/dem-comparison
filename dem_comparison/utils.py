@@ -291,7 +291,7 @@ def read_metrics(metric_files: list[Path], numerical_axes: bool = False) -> tupl
         parts = str(Path(pkl).stem).split("_")
         if numerical_axes:
             x.append(int(parts[0][:-1]))
-            y.append(int(parts[1][:-1]))
+            y.append(int(parts[1][:-1]) * (-1 if parts[1][-1] == "W" else 1))
         else:
             x.append(parts[0])
             y.append(parts[1])

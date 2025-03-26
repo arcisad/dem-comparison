@@ -78,6 +78,17 @@ def plot_metrics(
             )
 
     fig.update_layout(updatemenus=updatemenu)
+    if polar:
+        polar_layout = {
+            "angularaxis": {
+                "rotation": 90,
+                "direction": "clockwise",
+                "tickvals": [0, 45, 90, 135, 180, 225, 270, 315],
+                "ticktext": ["0", "45", "90", "135", "180", "-135", "-90", "-45"],
+                "tickmode": "array",
+            },
+        }
+        fig.update_layout(polar=polar_layout)
 
     if save_path:
         fig.write_html(save_path)
