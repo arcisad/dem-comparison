@@ -14,6 +14,7 @@ args = parser.parse_args()
 
 
 if __name__ == "__main__":
+    Path(args.save_dir_path).mkdir(parents=True, exist_ok=True)
     analyse_difference(
         lat_range=args.lat_range,
         lon_range=args.lon_range,
