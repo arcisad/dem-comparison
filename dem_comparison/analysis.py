@@ -91,8 +91,8 @@ def analyse_difference(
         outputs = analyse_difference_for_interval(
             c[0],
             c[1],
-            rema_resolution,
-            save_dir_path,
+            rema_resolution=rema_resolution,
+            save_dir_path=save_dir_path,
             use_multiprocessing=use_multiprocessing,
             num_cpus=num_cpus,
             mp_chunk_size=mp_chunk_size,
