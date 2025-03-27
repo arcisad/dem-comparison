@@ -11,6 +11,7 @@ build
 .data
 .TMP
 *.gpkg
+*.ovr
 
 # QGIS xml files
 *.aux.xml
