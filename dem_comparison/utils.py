@@ -302,3 +302,63 @@ def read_metrics(metric_files: list[Path], numerical_axes: bool = False) -> tupl
     nmad = [i[3] for i in data]
 
     return [me, std, mse, nmad], x, y
+
+
+def downsample_dataset(
+    dataset_path: str,
+    scale_factor: float | list[float] = 1.0,
+    output_file: str = "",
+    enhance_function=None,
+    force_shape: tuple = (),  # (height, width)
+):
+    """
+    Downsamples the output data and returns the new downsampled data and its new affine transformation according to `scale_factor`
+    The output shape could also be forced using `forced_shape` parameter.
+    """
+    with rio.open(dataset_path) as dataset:
+        # resample data to target shape
+        if type(scale_factor) == float:
+            scale_factor = [scale_factor] * 2
+        if len(force_shape) != 0:
+            output_shape = force_shape
+        else:
+            output_shape = (
+                int(dataset.height * scale_factor[0]),
+                int(dataset.width * scale_factor[1]),
+            )
+        data = dataset.read(
+            out_shape=(
+                dataset.count,
+                *output_shape,
+            ),
+            resampling=Resampling.bilinear,
+        )
+
+        if enhance_function is not None:
+            data = enhance_function(data)
+
+        # scale image transform
+        transform = dataset.transform * dataset.transform.scale(
+            (dataset.width / data.shape[-1]), (dataset.height / data.shape[-2])
+        )
+
+        if len(force_shape) != 0:
+            scale_factor = [
+                force_shape[0] / scale_factor[0],
+                force_shape[1] / scale_factor[1],
+            ]
+
+        profile = dataset.profile
+        profile.update(
+            transform=transform,
+            width=data.shape[2],
+            height=data.shape[1],
+            dtype=data.dtype,
+        )
+
+    if output_file != "":
+        with rio.open(output_file, "w", **profile) as ds:
+            for i in range(0, profile["count"]):
+                ds.write(data[i], i + 1)
+
+    return data, transform
