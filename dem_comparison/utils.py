@@ -1,16 +1,15 @@
 from rasterio.enums import Resampling
 from rasterio.crs import CRS
-from rasterio.profiles import Profile
 from pathlib import Path
 import numpy as np
 import rioxarray
 import rasterio as rio
-import multiprocessing as mp
 from osgeo import gdal
 from dem_handler.utils.spatial import resize_bounds, BoundingBox
 import os
 import pickle
 import shutil
+from itertools import product
 
 TEST_PATH = Path("tests")
 GEOID_PATH = TEST_PATH / "data/geoid/egm_08_geoid.tif"
@@ -239,6 +238,66 @@ def simple_mosaic(
 
     shutil.rmtree("temp_filled_rasters_dir", ignore_errors=True)
     print(f"Mosaic created.")
+    return None
+
+
+def build_diff_mosaics(
+    dem_diffs: list[Path], mosaic_dir: Path, interval: int = 10
+) -> None:
+    """Builds mosaics from elevation diffeence rasters.
+
+    Parameters
+    ----------
+    dem_diffs : list[Path]
+        List of paths to diff rasters.
+    mosaic_dir : Path
+        Ouput mosaics directory.
+    interval: int, optional,
+        Interval by degrees for determining the maximum size for each mosaic.
+        For an interval of I, a maximum size of IxI degrees mosaic will be queried and created.
+
+    Returns
+    -------
+    None
+    """
+
+    LAT_RANGE = range(-90, -50)
+    LON_RANGE = range(-180, 180)
+
+    splits = [f.stem.split("_") for f in dem_diffs]
+    lats = [-int(el[0][:-1]) for el in splits]
+    lons = [int(el[1][:-1]) * (-1 if el[1][-1] == "W" else 1) for el in splits]
+
+    lat_range = list(range(LAT_RANGE.start, LAT_RANGE.stop, interval))
+    lon_range = list(range(LON_RANGE.start, LON_RANGE.stop, interval))
+
+    lat_range = buffer_range(lat_range, 1)
+    lon_range = buffer_range(lon_range, 1)
+
+    lat_pairs = [range(*l) for l in get_pairs(lat_range, 2)]
+    lon_pairs = [range(*l) for l in get_pairs(lon_range, 2)]
+    combinations = list(product(lat_pairs, lon_pairs))
+
+    for i, c in enumerate(combinations):
+        lon_start = "W" if c[1].start < 0 else "E"
+        lon_stop = "W" if c[1].stop < 0 else "E"
+        combination_str = f"{abs(c[0].start)}S_{abs(c[1].start)}{lon_start}_{abs(c[0].stop)}S_{abs(c[1].stop)}{lon_stop}"
+        lat_cond = np.logical_and(
+            np.array(lats) >= c[0].start, np.array(lats) < c[0].stop
+        )
+        lon_cond = np.logical_and(
+            np.array(lons) >= c[1].start, np.array(lons) < c[1].stop
+        )
+        chunk = np.array(dem_diffs)[np.logical_and(lat_cond, lon_cond)].tolist()
+        if len(chunk) == 0:
+            print(f"No diff files found for {combination_str}. Skipping...")
+            continue
+        print(
+            f"Mosaicing chunk {combination_str}. {i + 1} of {len(combinations)} combinations."
+        )
+        mosaic_name = f"{combination_str}.tif"
+        simple_mosaic(chunk, mosaic_dir / mosaic_name)
+
     return None
 
 
