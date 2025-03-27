@@ -87,7 +87,7 @@ def plot_metrics(
                 "ticktext": ["0", "45", "90", "135", "180", "-135", "-90", "-45"],
                 "tickmode": "array",
             },
-            "radialaxis": {"range": [90, 50]}
+            "radialaxis": {"range": [90, 50]},
         }
         fig.update_layout(polar=polar_layout)
 
