@@ -363,22 +363,37 @@ def read_metrics(metric_files: list[Path], numerical_axes: bool = False) -> tupl
     return [me, std, mse, nmad], x, y
 
 
-def downsample_dataset(
-    dataset_path: str,
+def resample_dataset(
+    dataset_path: Path,
     scale_factor: float | list[float] = 1.0,
-    output_file: str = "",
-    enhance_function=None,
-    force_shape: tuple = (),  # (height, width)
-):
+    output_file: Path | None = None,
+    force_shape: tuple | None = None,  # (height, width)
+) -> tuple:
     """
-    Downsamples the output data and returns the new downsampled data and its new affine transformation according to `scale_factor`
+    Resamples the output data and returns the new data and its new affine transformation according to `scale_factor`
     The output shape could also be forced using `forced_shape` parameter.
+
+    Parameters
+    ----------
+    dataset_path : Path
+        Path to input dataset
+    scale_factor : float | list[float], optional
+        Scale factor to resample the data, by default 1.0
+    output_file : Path | None, optional
+        If provided the output will be written to a raster file on this path, by default None
+    force_shape : tuple | None, optional
+        Forcing the output shape. Will make `scale_factor` ineffective, by default None
+
+    Returns
+    -------
+    tuple
+        _description_
     """
     with rio.open(dataset_path) as dataset:
         # resample data to target shape
         if type(scale_factor) == float:
             scale_factor = [scale_factor] * 2
-        if len(force_shape) != 0:
+        if force_shape is not None:
             output_shape = force_shape
         else:
             output_shape = (
@@ -392,9 +407,6 @@ def downsample_dataset(
             ),
             resampling=Resampling.bilinear,
         )
-
-        if enhance_function is not None:
-            data = enhance_function(data)
 
         # scale image transform
         transform = dataset.transform * dataset.transform.scale(
@@ -415,7 +427,7 @@ def downsample_dataset(
             dtype=data.dtype,
         )
 
-    if output_file != "":
+    if output_file:
         with rio.open(output_file, "w", **profile) as ds:
             for i in range(0, profile["count"]):
                 ds.write(data[i], i + 1)
