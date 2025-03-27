@@ -413,12 +413,6 @@ def resample_dataset(
             (dataset.width / data.shape[-1]), (dataset.height / data.shape[-2])
         )
 
-        if len(force_shape) != 0:
-            scale_factor = [
-                force_shape[0] / scale_factor[0],
-                force_shape[1] / scale_factor[1],
-            ]
-
         profile = dataset.profile
         profile.update(
             transform=transform,
@@ -432,4 +426,5 @@ def resample_dataset(
             for i in range(0, profile["count"]):
                 ds.write(data[i], i + 1)
 
+    print(f"Resampling finished for {dataset_path.name}")
     return data, transform
