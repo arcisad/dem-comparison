@@ -86,7 +86,11 @@ def plot_metrics(
                     r=x,
                     theta=y,
                     mode="markers",
-                    marker=dict(color=metric, colorbar=dict(thickness=20)),
+                    marker=dict(
+                        color=metric,
+                        colorbar=dict(thickness=20),
+                        colorscale="temps_r",
+                    ),
                     name="",
                     hovertemplate="<i>Lat</i>: %{theta}, "
                     + "<i>Lon</i>: %{r}"
@@ -101,10 +105,14 @@ def plot_metrics(
         else:
             fig.add_trace(
                 go.Scatter(
-                    x=x,
-                    y=y,
+                    x=sorted(x),
+                    y=sorted(y),
                     mode="markers",
-                    marker=dict(color=metric, colorbar=dict(thickness=20)),
+                    marker=dict(
+                        color=metric,
+                        colorbar=dict(thickness=20),
+                        colorscale="temps_r",
+                    ),
                     name="",
                     hovertext=metric,
                     visible=True if i == 0 else False,
@@ -118,6 +126,7 @@ def plot_metrics(
                 x=metric,
                 visible=True if i == 0 else False,
                 showlegend=False,
+                name=labels[i],
             ),
             row=1,
             col=2,
