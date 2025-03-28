@@ -92,8 +92,8 @@ def plot_metrics(
                         colorscale="temps_r",
                     ),
                     name="",
-                    hovertemplate="<i>Lat</i>: %{theta}, "
-                    + "<i>Lon</i>: %{r}"
+                    hovertemplate="<i>Lat</i>: %{r}°, "
+                    + "<i>Lon</i>: %{theta}"
                     + "<br></br>"
                     "<b>%{text}</b>",
                     text=[f"{labels[i]}: {j}" for j in metric],
@@ -124,9 +124,13 @@ def plot_metrics(
         fig.add_trace(
             go.Histogram(
                 x=metric,
+                y=y,
                 visible=True if i == 0 else False,
                 showlegend=False,
                 name=labels[i],
+                hovertemplate="<i>Bin range</i>: %{x}"
+                + "<br></br>"
+                + "<b>Freq: %{y}</b>",
             ),
             row=1,
             col=2,
