@@ -10,6 +10,8 @@ import os
 import pickle
 import shutil
 from itertools import product
+from shapely import LineString, Point, Polygon
+from rasterio.transform import Affine
 
 TEST_PATH = Path("tests")
 GEOID_PATH = TEST_PATH / "data/geoid/egm_08_geoid.tif"
@@ -117,8 +119,8 @@ def reproject_match_tifs(
     if roi_poly is not None:
         if verbose:
             print("clip arrays by the roi")
-        tif_1_clipped = tif_1_reproj.rio.clip([roi_poly], CRS.from_epsg(4326))
-        tif_2_clipped = tif_2_reproj.rio.clip([roi_poly], CRS.from_epsg(4326))
+        tif_1_clipped = tif_1_reproj.rio.clip([roi_poly], CRS.from_epsg(target_crs))
+        tif_2_clipped = tif_2_reproj.rio.clip([roi_poly], CRS.from_epsg(target_crs))
         if verbose:
             print("Shape of arrays after being clipped by the roi")
             print(tif_1_clipped.shape, tif_2_clipped.shape)
@@ -169,10 +171,11 @@ def reproject_match_tifs(
 def simple_mosaic(
     dem_rasters: list[Path],
     save_path: Path,
-    resolution: str = "lowest",
+    resolution: str | tuple = "lowest",
     bounds_scale_factor: float = 1.02,
     keep_vrt: bool = False,
     fill_value: float | int | list[float] | list[int] | None = None,
+    force_bounds: tuple | None = None,
 ) -> None:
     """Making simple mosaic of all given raster files
 
@@ -190,7 +193,11 @@ def simple_mosaic(
         Keeps the vrt file.
     fill_value: float | int | list[float] | list[int] | None, optional
         Fills the mosaic with a singl value if provided, or fill each raster with the corresponding value from list, by default None
+    force_bounds: tuple | None, optional
+        Forces the mosaic to this bounding box if provided, otherwise it uses the outer bounds of all rasters, by default None
     """
+    force_resolution = type(resolution) is not str
+
     rasters = [rio.open(ds) for ds in dem_rasters]
     lefts = [r.bounds.left for r in rasters]
     rights = [r.bounds.right for r in rasters]
@@ -213,11 +220,18 @@ def simple_mosaic(
         r.close()
 
     bounds = (min(lefts), min(bottoms), max(rights), max(tops))
+    if force_bounds is not None:
+        bounds = force_bounds
     bounds = resize_bounds(BoundingBox(*bounds), bounds_scale_factor).bounds
+    xRes = resolution[0] if force_resolution else None
+    yRes = resolution[1] if force_resolution else None
+    resolution = "user" if force_resolution else resolution
     VRT_options = gdal.BuildVRTOptions(
         resolution=resolution,
         outputBounds=bounds,
         VRTNodata=np.nan,
+        xRes=xRes,
+        yRes=yRes,
     )
     vrt_path = str(save_path).replace(".tif", ".vrt")
     ds = gdal.BuildVRT(vrt_path, dem_rasters, options=VRT_options)
@@ -428,3 +442,183 @@ def resample_dataset(
 
     print(f"Resampling finished for {dataset_path.name}")
     return data, transform
+
+
+def get_cross_lines(poly: Polygon) -> tuple:
+    """Extracts the crossing line from the centre of the sides of a rectangle
+
+    Parameters
+    ----------
+    poly : Polygon
+        Shapley Polygon
+
+    Returns
+    -------
+    tuple
+        Tuple of LineStrings
+    """
+    points = [np.array(el) for el in list(zip(*poly.exterior.xy))[:-1]]
+    l1_points = [(points[0] + points[1]) / 2, (points[2] + points[3]) / 2]
+    l2_points = [(points[0] + points[3]) / 2, (points[1] + points[2]) / 2]
+    l1 = LineString([Point(*l1_points[0]), Point(*l1_points[1])])
+    l2 = LineString([Point(*l2_points[0]), Point(*l2_points[1])])
+    return l1, l2
+
+
+def get_line_points(l: LineString, step_size: float = 30) -> tuple:
+    """Finds point coords in a line at given step size
+
+    Parameters
+    ----------
+    l : LineString
+    step_size : float, optional
+        step size, by default 30
+
+    Returns
+    -------
+    list[Point]
+    """
+    dists = np.arange(0, l.length + step_size, step_size)
+    return [l.interpolate(d) for d in dists], dists
+
+
+def get_pixel_coords(p: Point, t: Affine) -> tuple:
+    """Returns the pixel coords of a point
+
+    Parameters
+    ----------
+    p : Point
+    t : Affine
+        Affine transform of the corresponding raster
+
+    Returns
+    -------
+    Point
+    """
+    x, y = p.xy
+    px = int(np.floor((x[0] - t.c) / t.a))
+    py = int(np.floor((t.f - y[0]) / abs(t.e)))
+    return (px, py)
+
+
+def get_cross_section_data(
+    raster: Path,
+    bounds_poly: Polygon,
+    step_size: float = 30.0,
+    average_window: int | None = None,
+):
+    """Finds values of a raster along the crossing lines at the centre of either side of a given bounding box.
+
+    Parameters
+    ----------
+    raster : Path
+    bounds_poly : Polygon
+    step_size: float, optional
+        Steps for calculating the values along the crossing lines, by default 30
+    average_window:int | None, optional,
+        lIf passed, a moving average of the data by this window size will be returned, by default None
+
+    Returns
+    -------
+    Tuple of distances along each line, the values as each step size, coords of the points in the world and coords of the points in pixels
+    """
+    with rio.open(raster, "r") as ds:
+        transform = ds.transform
+        img = ds.read(1)
+        l1, l2 = get_cross_lines(bounds_poly)
+
+        value_list = []
+        dist_list = []
+        ps_list = []
+        psx_list = []
+        for l in [l1, l2]:
+            ps, dists = get_line_points(l, step_size)
+            psx = [get_pixel_coords(p, transform) for p in ps]
+            x = [i[0] for i in psx]
+            y = [i[1] for i in psx]
+            idx = (np.array(y), np.array(x))
+            vals = img[idx]
+            if average_window:
+                vals = moving_average(vals, average_window)
+            value_list.append(vals)
+            dist_list.append(dists)
+            ps_list.append([(i.xy[0][0], i.xy[1][0]) for i in ps])
+            psx_list.append(psx)
+    return dist_list, value_list, ps_list, psx_list
+
+
+def moving_average(x, w):
+    return np.convolve(x, np.ones(w), "same") / w
+
+
+def enhance_image(
+    img: np.ndarray, intensity_range: tuple = (-50, 50), color_steps: int = 15
+):
+    """Enhances an elevation data image
+
+    Parameters
+    ----------
+    img : np.ndarray
+        input image
+    intensity_range : tuple, optional
+        Intensity clipping range, by default (-50, 50)
+    color_steps : int, optional
+        Number of color steps, by default 15
+
+    Returns
+    -------
+    new enhanced image
+    """
+    img = np.clip(img, intensity_range[0], intensity_range[1])
+    r_levels = np.clip(np.arange(255, -color_steps, -color_steps), 0, 255)
+    g_levels = np.concat(
+        [
+            np.arange(0, 255, color_steps * 2),
+            np.arange(240, -color_steps * 2, -color_steps * 2),
+        ]
+    )
+    b_levels = np.clip(np.arange(0, 260, color_steps), 0, 255)
+    color_levels = [np.array([el[0], 0, el[1]]) for el in zip(r_levels, b_levels)]
+    intensity_step = (intensity_range[1] - intensity_range[0]) / len(color_levels)
+    left_edges = np.arange(intensity_range[0], intensity_range[1], intensity_step)
+    new_r = np.zeros_like(img)
+    new_b = np.zeros_like(img)
+    new_g = np.zeros_like(img)
+    for i, edge in enumerate(left_edges):
+        new_r[np.logical_and(img >= edge, img <= edge + intensity_step)] = r_levels[i]
+        new_g[np.logical_and(img >= edge, img <= edge + intensity_step)] = g_levels[i]
+        new_b[np.logical_and(img >= edge, img <= edge + intensity_step)] = b_levels[i]
+
+    new_img = np.stack((new_r, new_g, new_b), axis=2).astype("uint8")
+    return new_img
+
+
+def bin_metrics(
+    metric: np.ndarray, bounds: tuple | None = None, num_bins: int = 15
+) -> np.ndarray:
+    """Creates bins of metrics values
+
+    Parameters
+    ----------
+    metric : np.ndarray
+    bounds : tuple
+        Bounds to clip the metric values
+    num_bins : int, optional
+       Number of bins, by default 15
+
+    Returns
+    -------
+    new metric, bin left edges and bin interval
+    """
+    if bounds is not None:
+        metric = np.clip(metric, bounds[0], bounds[1])
+    else:
+        bounds = (np.min(metric), np.max(metric))
+    step_val = (bounds[1] - bounds[0]) / num_bins
+    left_edges = np.arange(bounds[0], bounds[1] + step_val, step_val)
+    new_metric = np.zeros_like(metric).astype("float")
+    for edge in left_edges:
+        new_metric[np.logical_and(metric >= edge, metric <= edge + step_val)] = (
+            edge + step_val / 2
+        )
+    return new_metric, left_edges, step_val
