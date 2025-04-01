@@ -157,8 +157,7 @@ def plot_metrics(
                 col=2,
             )
         else:
-            y = np.histogram(metric, num_bins)[0]
-            hover_text = [
+            hover_text_hist = [
                 f"{np.round(bv, 2)}-{np.round(bv + bin_step, 2)}"
                 for bv in bin_edges[:-1]
             ]
@@ -172,7 +171,7 @@ def plot_metrics(
                     hovertemplate="<i>Bin range</i>: %{customdata}"
                     + "<br></br>"
                     + "<b>Freq: %{y}</b>",
-                    customdata=hover_text,
+                    customdata=hover_text_hist,
                 ),
                 row=1,
                 col=2,
@@ -202,13 +201,14 @@ def plot_metrics(
 def plot_cross_sections(
     raster: Path | list[Path],
     bounds_poly: Polygon,
-    diff_raster: Path | None = None,
+    diff_raster: Path,
     dist_step: int = 500,
     average_steps: list[int] = [5, 15, 30, 60, 100],
     temp_path: Path = Path("TMP"),
     raster_names: list[str] | None = None,
     raster_colours: list[str] | None = None,
     save_path: Path | None = None,
+    diff_opacity: float = 1.0,
 ):
     if type(raster) is not list:
         raster = [raster]
@@ -248,8 +248,9 @@ def plot_cross_sections(
                     + [
                         el
                         for el in [l == av_step_names[i] for l in av_step_names]
-                        for _ in range(5)
+                        for _ in range(2 if diff_opacity == 0 else 4)
                     ]
+                    + [True]
                 },
             ],
         }
@@ -277,12 +278,11 @@ def plot_cross_sections(
             )
         vals_list_windows_per_raster.append(vals_list_windows)
 
-    if diff_raster:
-        diff_vals_list_windows = []
-        for w in average_steps:
-            diff_vals_list_windows.append(
-                get_cross_section_data(diff_raster, bounds_poly, dist_step, w)
-            )
+    diff_vals_list_windows = []
+    for w in average_steps:
+        diff_vals_list_windows.append(
+            get_cross_section_data(diff_raster, bounds_poly, dist_step, w)
+        )
 
     for j, vlw in enumerate(vals_list_windows_per_raster):
         for i, vals_list in enumerate(vlw):
@@ -312,15 +312,16 @@ def plot_cross_sections(
                     ),
                     name=raster_names[j],
                     visible=True if i == 0 else False,
+                    showlegend=False,
                 ),
                 row=2,
                 col=1,
                 secondary_y=False,
             )
 
-    if diff_raster:
-        for i, vals_list in enumerate(diff_vals_list_windows):
-            d, v, _, psx = vals_list
+    for i, vals_list in enumerate(diff_vals_list_windows):
+        d, v, _, psx = vals_list
+        if diff_opacity != 0:
             fig.add_trace(
                 go.Scatter(
                     x=d[0],
@@ -329,8 +330,10 @@ def plot_cross_sections(
                     marker=dict(
                         color="blue",
                     ),
-                    name="Diff",
+                    name="",
                     visible=True if i == 0 else False,
+                    opacity=diff_opacity,
+                    showlegend=False,
                 ),
                 row=1,
                 col=1,
@@ -344,63 +347,67 @@ def plot_cross_sections(
                     marker=dict(
                         color="red",
                     ),
-                    name="Diff",
+                    name="",
                     visible=True if i == 0 else False,
+                    opacity=diff_opacity,
+                    showlegend=False,
                 ),
                 row=2,
                 col=1,
                 secondary_y=True,
             )
-            fig.add_trace(
-                go.Scatter(
-                    x=[i[0] for i in psx[0]],
-                    y=[imh - i[1] for i in psx[0]],
-                    mode="lines",
-                    marker=dict(
-                        color="blue",
-                    ),
-                    name="",
-                    hovertemplate="%{text}<extra></extra>",
-                    text=[f"{v[0][i]}" for i in range(len(v[0]))],
-                    visible=True if i == 0 else False,
+        fig.add_trace(
+            go.Scatter(
+                x=[i[0] for i in psx[0]],
+                y=[imh - i[1] for i in psx[0]],
+                mode="lines",
+                marker=dict(
+                    color="blue",
                 ),
-                row=1,
-                col=2,
-            )
-            fig.add_trace(
-                go.Scatter(
-                    x=[i[0] for i in psx[1]],
-                    y=[imh - i[1] for i in psx[1]],
-                    mode="lines",
-                    marker=dict(
-                        color="red",
-                    ),
-                    name="",
-                    hovertemplate="%{text}<extra></extra>",
-                    text=[f"{v[1][i]}" for i in range(len(v[1]))],
-                    visible=True if i == 0 else False,
+                name="Absolute diff along",
+                hovertemplate="%{text}<extra></extra>",
+                text=[f"{v[0][i]}" for i in range(len(v[0]))],
+                visible=True if i == 0 else False,
+            ),
+            row=1,
+            col=2,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[i[0] for i in psx[1]],
+                y=[imh - i[1] for i in psx[1]],
+                mode="lines",
+                marker=dict(
+                    color="red",
                 ),
-                row=1,
-                col=2,
-            )
-            x, y = bounds_poly.exterior.xy
-            x = [int(np.floor((i - transform.c) / transform.a)) for i in x.tolist()]
-            y = [
-                imh - int(np.floor((transform.f - i) / abs(transform.e)))
-                for i in y.tolist()
-            ]
-            fig.add_trace(
-                go.Scatter(
-                    x=x,
-                    y=y,
-                    mode="lines",
-                    name="",
-                    visible=True if i == 0 else False,
-                    hoverinfo="none",
-                ),
-                row=1,
-                col=2,
-            )
+                name="Absolute diff across",
+                hovertemplate="%{text}<extra></extra>",
+                text=[f"{v[1][i]}" for i in range(len(v[1]))],
+                visible=True if i == 0 else False,
+            ),
+            row=1,
+            col=2,
+        )
+
+    x, y = bounds_poly.exterior.xy
+    x = [int(np.floor((i - transform.c) / transform.a)) for i in x.tolist()]
+    y = [imh - int(np.floor((transform.f - i) / abs(transform.e))) for i in y.tolist()]
+    fig.add_trace(
+        go.Scatter(
+            x=x,
+            y=y,
+            mode="lines",
+            marker=dict(
+                color="magenta",
+            ),
+            name="AOI boundary",
+            visible=True,
+            hoverinfo="none",
+        ),
+        row=1,
+        col=2,
+    )
+
     fig.update_layout(updatemenus=updatemenu)
     fig.add_layout_image(
         dict(
@@ -419,7 +426,7 @@ def plot_cross_sections(
         row=1,
         col=2,
     )
-    fig.update_layout(showlegend=False)
+    fig.update_layout(showlegend=True)
     fig.update_xaxes(title_text="Distance(m)", row=2, col=1)
     fig.update_yaxes(
         title_text="Elevation(m)",
@@ -433,18 +440,19 @@ def plot_cross_sections(
         col=1,
         secondary_y=False,
     )
-    fig.update_yaxes(
-        title_text="ABS Difference(m)",
-        row=1,
-        col=1,
-        secondary_y=True,
-    )
-    fig.update_yaxes(
-        title_text="ABS Difference(m)",
-        row=2,
-        col=1,
-        secondary_y=True,
-    )
+    if diff_opacity != 0.0:
+        fig.update_yaxes(
+            title_text="ABS Difference(m)",
+            row=1,
+            col=1,
+            secondary_y=True,
+        )
+        fig.update_yaxes(
+            title_text="ABS Difference(m)",
+            row=2,
+            col=1,
+            secondary_y=True,
+        )
     fig.update_xaxes(showgrid=False, showticklabels=False, row=1, col=2)
     fig.update_yaxes(showgrid=False, showticklabels=False, row=1, col=2)
     fig.update_layout(hovermode="x unified")
