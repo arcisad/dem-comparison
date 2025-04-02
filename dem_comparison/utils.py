@@ -552,7 +552,10 @@ def moving_average(x, w):
 
 
 def enhance_image(
-    img: np.ndarray, intensity_range: tuple = (-50, 50), color_steps: int = 15
+    img: np.ndarray,
+    intensity_range: tuple = (-50, 50),
+    color_steps: int = 15,
+    white_background: bool = False,
 ):
     """Enhances an elevation data image
 
@@ -564,6 +567,8 @@ def enhance_image(
         Intensity clipping range, by default (-50, 50)
     color_steps : int, optional
         Number of color steps, by default 15
+    white_background: bool, optional,
+        Set the background to white, by default False
 
     Returns
     -------
@@ -581,9 +586,9 @@ def enhance_image(
     color_levels = [np.array([el[0], 0, el[1]]) for el in zip(r_levels, b_levels)]
     intensity_step = (intensity_range[1] - intensity_range[0]) / len(color_levels)
     left_edges = np.arange(intensity_range[0], intensity_range[1], intensity_step)
-    new_r = np.zeros_like(img)
-    new_b = np.zeros_like(img)
-    new_g = np.zeros_like(img)
+    new_r = 255 * np.ones_like(img) if white_background else np.zeros_like(img)
+    new_b = 255 * np.ones_like(img) if white_background else np.zeros_like(img)
+    new_g = 255 * np.ones_like(img) if white_background else np.zeros_like(img)
     for i, edge in enumerate(left_edges):
         new_r[np.logical_and(img >= edge, img <= edge + intensity_step)] = r_levels[i]
         new_g[np.logical_and(img >= edge, img <= edge + intensity_step)] = g_levels[i]

@@ -2,7 +2,7 @@ from dem_handler.dem.rema import BBox
 from dem_handler.utils.spatial import BoundingBox
 from pathlib import Path
 from dem_comparison.utils import *
-from dem_handler.utils.spatial import resize_bounds
+from dem_handler.utils.spatial import resize_bounds, transform_polygon
 from dem_handler.dem.rema import get_rema_dem_for_bounds
 from dem_handler.dem.geoid import remove_geoid
 from dem_handler.dem.cop_glo30 import get_cop30_dem_for_bounds
@@ -15,6 +15,9 @@ import pickle
 import geopandas as gpd
 from dem_handler.download.aio_aws import bulk_upload_dem_tiles
 import aioboto3
+import glob
+from shapely import from_wkt
+import gemgis as gg
 
 
 def analyse_difference(
@@ -570,3 +573,167 @@ def generate_metrics(
         with open(save_path, "wb") as f:
             pickle.dump(metrics, f)
     return metrics
+
+
+def area_of_interest(
+    bounds_polygon: Polygon | str,
+    src_crs: int,
+    aoi_name: str,
+    rema_index_path: Path = Path("../dem_comparison/data/REMA_Mosaic_Index_v2.gpkg"),
+    cop30_index_path: Path = Path("../dem_comparison/data/copdem_tindex_filename.gpkg"),
+    num_cpu: int = 4,
+    slope_maps: bool = True,
+) -> list[Path]:
+    """Generates mosaics for a give area of interest
+
+    Parameters
+    ----------
+    bounds_polygon : Polygon | str
+        Shapely Polygon or a WKT compatible str
+    src_crs : int
+        CRS of the bounds polygon
+    aoi_name : str
+        Name of the area of the interest. It will be used in the generated directory and file names.
+    rema_index_path : Path, optional
+        Path to REMA index file, by default Path("../dem_comparison/data/REMA_Mosaic_Index_v2.gpkg")
+    cop30_index_path : Path, optional
+        Path to COP30 index file, by default Path("../dem_comparison/data/copdem_tindex_filename.gpkg")
+    num_cpu : int, optional
+        Number of CPUs for multi-processing, by default 4
+    slope_maps : bool, optional
+        Whether to generate slope maps or not, by default True
+
+    Returns
+    -------
+    list[Path]
+        List of output file paths.
+    """
+
+    AOI_CRS = 4326
+    REMA_CRS = 3031
+
+    if type(bounds_polygon) is str:
+        aoi_poly = from_wkt(bounds_polygon)
+    else:
+        aoi_poly = bounds_polygon
+
+    if src_crs != AOI_CRS:
+        aoi_bounds = transform_polygon(aoi_poly, src_crs, AOI_CRS).bounds
+    else:
+        aoi_bounds = aoi_poly.bounds
+
+    extended_aoi_bounds = (
+        *(np.floor(aoi_bounds[0:2]).astype("int")).tolist(),
+        *(np.ceil(aoi_bounds[2:]).astype("int")).tolist(),
+    )
+
+    print(f"Analysing area of interest for boundary: {extended_aoi_bounds}")
+
+    lat_range = range(extended_aoi_bounds[1], extended_aoi_bounds[3])
+    lon_range = range(extended_aoi_bounds[0], extended_aoi_bounds[2])
+
+    analyse_difference_for_interval(
+        lat_range,
+        lon_range,
+        temp_path=Path(f"TEMP_{aoi_name}"),
+        save_dir_path=Path(f"{aoi_name}_Outputs"),
+        use_multiprocessing=True,
+        query_num_tasks=None,
+        keep_temp_files=True,
+        return_outputs=False,
+        num_cpus=num_cpu,
+        rema_index_path=rema_index_path,
+        cop30_index_path=cop30_index_path,
+    )
+
+    diff_mos = Path(f"{aoi_name}_Outputs/{aoi_name}_mosaics/diff_mos.tif")
+    matched_cop_mosaic = Path(
+        f"{aoi_name}_Outputs/{aoi_name}_mosaics/matched_cop_mosaic.tif"
+    )
+    matched_rema_mosaic = Path(
+        f"{aoi_name}_Outputs/{aoi_name}_mosaics/matched_rema_mosaic.tif"
+    )
+
+    outputs = [diff_mos, matched_rema_mosaic, matched_cop_mosaic]
+
+    os.makedirs(f"{aoi_name}_Outputs/{aoi_name}_mosaics", exist_ok=True)
+    diff_arrays = [Path(p) for p in glob.glob(f"{aoi_name}_Outputs/dem_diff/*.tif")]
+    if diff_mos.exists():
+        os.remove(diff_mos)
+    simple_mosaic(diff_arrays, diff_mos, force_bounds=aoi_poly.bounds)
+
+    with rio.open(diff_mos, "r") as ds:
+        tr = ds.transform
+        rema_resolution = (tr.a, -tr.e)
+
+    cop_dems = glob.glob(f"TEMP_{aoi_name}/**/TEMP_COP_ELLIPSOID.tif")
+    rema_dems = glob.glob(f"TEMP_{aoi_name}/**/TEMP_REMA.tif")
+
+    cop_mosaic = Path(f"{aoi_name}_Outputs/cop_mosaic.tif")
+    rema_mosaic = Path(f"{aoi_name}_Outputs/rema_mosaic.tif")
+
+    simple_mosaic(
+        cop_dems,
+        cop_mosaic,
+        force_bounds=aoi_bounds,
+    )
+
+    if src_crs == REMA_CRS:
+        rema_bounds = aoi_poly.bounds
+    else:
+        rema_bounds = transform_polygon(aoi_poly, src_crs, REMA_CRS).bounds
+    simple_mosaic(
+        rema_dems,
+        rema_mosaic,
+        force_bounds=rema_bounds,
+        resolution=rema_resolution,
+    )
+
+    reproject_match_tifs(
+        rema_mosaic,
+        cop_mosaic,
+        target_crs=REMA_CRS,
+        verbose=True,
+        convert_dB=False,
+        save_path_1=matched_rema_mosaic,
+        save_path_2=matched_cop_mosaic,
+    )
+    os.remove(cop_mosaic)
+    os.remove(rema_mosaic)
+
+    if slope_maps:
+        with rio.open(matched_cop_mosaic, "r") as ds:
+            cop30_slope = gg.raster.calculate_slope(ds)
+            cop30_profile = ds.profile
+
+        with rio.open(matched_rema_mosaic, "r") as ds:
+            rema_slope = gg.raster.calculate_slope(ds)
+            rema_profile = ds.profile
+
+        slope_diff_array = rema_slope - cop30_slope
+
+        slope_diff = Path(f"{aoi_name}_Outputs/{aoi_name}_mosaics/slope_diff.tif")
+        matched_cop_slope = Path(
+            f"{aoi_name}_Outputs/{aoi_name}_mosaics/matched_cop_slope.tif"
+        )
+        matched_rema_slope = Path(
+            f"{aoi_name}_Outputs/{aoi_name}_mosaics/matched_rema_slope.tif"
+        )
+
+        with rio.open(slope_diff, "w", **rema_profile) as ds:
+            ds.write(slope_diff_array, 1)
+
+        with rio.open(matched_rema_slope, "w", **rema_profile) as ds:
+            ds.write(rema_slope, 1)
+
+        with rio.open(matched_cop_slope, "w", **cop30_profile) as ds:
+            ds.write(cop30_slope, 1)
+
+        outputs.extend([slope_diff, matched_rema_slope, matched_cop_slope])
+
+    shutil.rmtree(Path(f"TEMP_{aoi_name}"))
+    shutil.rmtree(Path(f"{aoi_name}_Outputs/dem_diff"))
+    shutil.rmtree(Path(f"{aoi_name}_Outputs/dem_diff_metrics"))
+    shutil.rmtree(Path(f"{aoi_name}_Outputs/original_rema_metrics"))
+
+    return outputs

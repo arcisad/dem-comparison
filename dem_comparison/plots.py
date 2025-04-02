@@ -223,14 +223,47 @@ def plot_cross_sections(
     raster: Path | list[Path],
     bounds_poly: Polygon,
     diff_raster: Path,
-    dist_step: int = 500,
+    dist_step: int = 30,
     average_steps: list[int] = [5, 15, 30, 60, 100],
     temp_path: Path = Path("TMP"),
     raster_names: list[str] | None = None,
     raster_colours: list[str] | None = None,
+    axes_label: str = "Elevation(m)",
     save_path: Path | None = None,
     diff_opacity: float = 1.0,
 ):
+    """Plots the cross section changes of an area of interest
+
+    Parameters
+    ----------
+    raster : Path | list[Path]
+        Path ot list of Paths to the required raster files
+    bounds_poly : Polygon
+        Bounds for the area of interest in the rater files
+    diff_raster : Path
+        Difference raster (diff between input rasters)
+    dist_step : int, optional
+        Steps of spatial intervals in the cross sections in meters, by default 30
+    average_steps : list[int], optional
+        Smoothing levels for the plots, by default [5, 15, 30, 60, 100]
+    temp_path : Path, optional
+        Temporary path for intermediate outputs, by default Path("TMP")
+    raster_names : list[str] | None, optional
+        Name of the rasters in the plot, by default None
+    raster_colours : list[str] | None, optional
+        Color of the rasters in the plot, by default None
+    daxes_label: str, optional
+        Label for the plot axes, by default "Elevation(m)"
+    save_path : Path | None, optional
+        Path to sabve the outputs, by default None
+    diff_opacity : float, optional
+        Opacity of the difference plot, by default 1.0
+
+    Returns
+    -------
+    _type_
+        _description_
+    """
     if type(raster) is not list:
         raster = [raster]
 
@@ -450,13 +483,13 @@ def plot_cross_sections(
     fig.update_layout(showlegend=True)
     fig.update_xaxes(title_text="Distance(m)", row=2, col=1)
     fig.update_yaxes(
-        title_text="Elevation(m)",
+        title_text=axes_label,
         row=1,
         col=1,
         secondary_y=False,
     )
     fig.update_yaxes(
-        title_text="Elevation(m)",
+        title_text=axes_label,
         row=2,
         col=1,
         secondary_y=False,
