@@ -594,31 +594,61 @@ def enhance_image(
 
 
 def bin_metrics(
-    metric: np.ndarray, bounds: tuple | None = None, num_bins: int = 15
+    metric: list | np.ndarray,
+    bins: int | list = 15,
+    bounds: tuple | None = None,
 ) -> np.ndarray:
     """Creates bins of metrics values
 
     Parameters
     ----------
-    metric : np.ndarray
+    metric : list | np.ndarray
+    bins : int | list, optional
+       Number of bins or list of left edges, by default 15
     bounds : tuple
         Bounds to clip the metric values
-    num_bins : int, optional
-       Number of bins, by default 15
 
     Returns
     -------
     new metric, bin left edges and bin interval
     """
+
+    if type(metric) is list:
+        metric = np.array(metric)
+
     if bounds is not None:
         metric = np.clip(metric, bounds[0], bounds[1])
     else:
         bounds = (np.min(metric), np.max(metric))
-    step_val = (bounds[1] - bounds[0]) / num_bins
-    left_edges = np.arange(bounds[0], bounds[1] + step_val, step_val)
+
+    if type(bins) is list:
+        left_edges = bins
+        round_left_edges = [np.round(e, 2) for e in left_edges]
+        if np.round(np.max(metric), 2) not in round_left_edges:
+            left_edges = left_edges + [np.max(metric).tolist()]
+        if np.round(np.min(metric), 2) not in round_left_edges:
+            left_edges = [np.min(metric).tolist()] + left_edges
+        step_vals = np.diff(left_edges).tolist()
+        left_edges = left_edges[:-1]
+    else:
+        step_val = (bounds[1] - bounds[0]) / bins
+        left_edges = np.arange(bounds[0], bounds[1], step_val)
+        step_vals = [step_val.tolist()] * len(left_edges)
+
     new_metric = np.zeros_like(metric).astype("float")
-    for edge in left_edges:
-        new_metric[np.logical_and(metric >= edge, metric <= edge + step_val)] = (
-            edge + step_val / 2
+    diff_list = np.zeros_like(metric).astype("float")
+    for i, edge in enumerate(left_edges):
+        right_condition = metric < edge + step_vals[i]
+        if i == len(left_edges) - 1:
+            right_condition = metric <= edge + step_vals[i]
+        new_metric[np.logical_and(metric >= edge, right_condition)] = (
+            edge + step_vals[i] / 2
         )
-    return new_metric, left_edges, step_val
+        diff_list[np.logical_and(metric >= edge, right_condition)] = step_vals[i]
+
+    return (
+        new_metric,
+        left_edges,
+        (step_vals[0] if type(bins) is int else step_vals),
+        diff_list.tolist(),
+    )

@@ -17,7 +17,7 @@ def plot_metrics(
     polar: bool = False,
     save_path: Path | None = None,
     data_bounds: tuple | list[tuple] | None = (-50, 50),
-    num_bins: int | None = 15,
+    bins: int | list | None = 15,
 ) -> go.Figure:
     """Plots the metrics for the DEMS as an interactive plot
 
@@ -34,6 +34,8 @@ def plot_metrics(
     data_bounds: tuple | list[tuple] | None, optional
         Filters out the data beyond the given bounds (left and right inclusive), by default (-50, 50),
         If list of bounds provided the number of bounds should be the same as the number of metrics.
+    bins: int | list | None, optional
+        Bins the metrics if passed, either the number of bins or list of list of left edges/list of bin numbers or a combination of both, by default 15
     Returns
     -------
     go.Figure
@@ -54,6 +56,11 @@ def plot_metrics(
         assert len(data_bounds) == len(
             metrics
         ), "If used as a list, the number of data bounds should be the same as the number of metrics."
+
+    if type(bins) is list:
+        assert len(bins) == len(
+            metrics
+        ), "If used as a list, the number of bins should be the same as the number of metrics."
 
     # buttons to create
     buttons = [
@@ -90,13 +97,25 @@ def plot_metrics(
                 x, y, metric = filter_data(metric, data_bounds)
         color = metric
         hover_text = metric
-        if num_bins is not None:
-            bin_vals, bin_edges, bin_step = bin_metrics(metric, num_bins=num_bins)
+        if bins is not None:
+            if type(bins) is list:
+                bin_vals, bin_edges, bin_steps, diff_list = bin_metrics(
+                    metric, bins=bins[i]
+                )
+                if type(bin_steps) is not list:
+                    bin_steps = [bin_steps] * len(bin_edges)
+            else:
+                bin_vals, bin_edges, bin_steps, diff_list = bin_metrics(
+                    metric, bins=bins
+                )
+                bin_steps = [bin_steps] * len(bin_edges)
+            if type(bin_steps) is not list:
+                bin_steps = [bin_steps] * len(bin_edges)
             color = bin_vals
             hover_text = []
-            for bv in bin_vals:
-                bin_start = np.round(bv - bin_step / 2, 2)
-                bin_end = np.round(bv + bin_step / 2, 2)
+            for k, bv in enumerate(bin_vals):
+                bin_start = np.round(bv - diff_list[k] / 2, 2)
+                bin_end = np.round(bv + diff_list[k] / 2, 2)
                 if bin_start == bin_end:
                     hover_text.append(f"{bin_start}")
                 else:
@@ -141,7 +160,7 @@ def plot_metrics(
                 row=1,
                 col=1,
             )
-        if num_bins is None:
+        if bins is None:
             fig.add_trace(
                 go.Histogram(
                     x=metric,
@@ -158,13 +177,15 @@ def plot_metrics(
             )
         else:
             hover_text_hist = [
-                f"{np.round(bv, 2)}-{np.round(bv + bin_step, 2)}"
-                for bv in bin_edges[:-1]
+                f"{np.round(be, 2)}-{np.round(be + bin_steps[k], 2)}"
+                for k, be in enumerate(np.array(bin_edges).tolist())
             ]
             fig.add_trace(
                 go.Bar(
                     x=bin_edges,
-                    y=np.histogram(metric, num_bins)[0],
+                    y=np.histogram(
+                        metric, np.array(bin_edges).tolist() + [np.max(metric).tolist()]
+                    )[0],
                     visible=True if i == 0 else False,
                     showlegend=False,
                     name=labels[i],
@@ -330,7 +351,7 @@ def plot_cross_sections(
                     marker=dict(
                         color="blue",
                     ),
-                    name="",
+                    name="Diff",
                     visible=True if i == 0 else False,
                     opacity=diff_opacity,
                     showlegend=False,
@@ -347,7 +368,7 @@ def plot_cross_sections(
                     marker=dict(
                         color="red",
                     ),
-                    name="",
+                    name="Diff",
                     visible=True if i == 0 else False,
                     opacity=diff_opacity,
                     showlegend=False,
