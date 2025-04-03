@@ -584,6 +584,7 @@ def area_of_interest(
     num_cpu: int = 4,
     slope_maps: bool = True,
     return_outputs: bool = False,
+    keep_temp_files: bool = False,
 ) -> list[Path]:
     """Generates mosaics for a give area of interest
 
@@ -604,7 +605,9 @@ def area_of_interest(
     slope_maps : bool, optional
         Whether to generate slope maps or not, by default True
     return_outputs : bool, optional
-        Only returns the output file paths, by default False,
+        Only returns the output file paths, by default False
+    keep_temp_files : bool, optional
+        Keeping the intermediate files, by default False
 
     Returns
     -------
@@ -715,8 +718,10 @@ def area_of_interest(
         save_path_1=matched_rema_mosaic,
         save_path_2=matched_cop_mosaic,
     )
-    os.remove(cop_mosaic)
-    os.remove(rema_mosaic)
+
+    if not keep_temp_files:
+        os.remove(cop_mosaic)
+        os.remove(rema_mosaic)
 
     if slope_maps:
         with rio.open(matched_cop_mosaic, "r") as ds:
@@ -738,9 +743,10 @@ def area_of_interest(
         with rio.open(matched_cop_slope, "w", **cop30_profile) as ds:
             ds.write(cop30_slope, 1)
 
-    shutil.rmtree(Path(f"TEMP_{aoi_name}"))
-    shutil.rmtree(Path(f"{aoi_name}_Outputs/dem_diff"))
-    shutil.rmtree(Path(f"{aoi_name}_Outputs/dem_diff_metrics"))
-    shutil.rmtree(Path(f"{aoi_name}_Outputs/original_rema_metrics"))
+    if not keep_temp_files:
+        shutil.rmtree(Path(f"TEMP_{aoi_name}"))
+        shutil.rmtree(Path(f"{aoi_name}_Outputs/dem_diff"))
+        shutil.rmtree(Path(f"{aoi_name}_Outputs/dem_diff_metrics"))
+        shutil.rmtree(Path(f"{aoi_name}_Outputs/original_rema_metrics"))
 
     return outputs

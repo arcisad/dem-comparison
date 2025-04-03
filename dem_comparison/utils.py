@@ -516,7 +516,7 @@ def get_cross_section_data(
     step_size: float, optional
         Steps for calculating the values along the crossing lines, by default 30
     average_window:int | None, optional,
-        lIf passed, a moving average of the data by this window size will be returned, by default None
+        If passed, a moving average of the data by this window size will be returned, by default None
 
     Returns
     -------
