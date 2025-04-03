@@ -10,6 +10,7 @@ from dem_comparison.utils import (
     read_metrics,
     hillshade,
 )
+from dem_handler.utils.spatial import resize_bounds, BoundingBox
 from PIL import Image
 import matplotlib.pyplot as plt
 from shapely import Polygon
@@ -321,28 +322,36 @@ def plot_cross_sections(
     with rio.open(full_map, "r") as ds:
         full_map_transform = ds.transform
         full_map_img = ds.read(1)
-        xy_centre = bounds_poly.centroid.xy
-        x_centre = int(
-            np.floor((xy_centre[0][0] - full_map_transform.c) / full_map_transform.a)
+        plot_bounds = resize_bounds(BoundingBox(*bounds_poly.bounds), 2).bounds
+        minx = int(
+            np.floor((plot_bounds[0] - full_map_transform.c) / full_map_transform.a)
         )
-        y_centre = int(
+        miny = int(
             np.floor(
-                (full_map_transform.f - xy_centre[1][0]) / abs(full_map_transform.e)
+                (full_map_transform.f - plot_bounds[1]) / abs(full_map_transform.e)
             )
         )
-        full_map_img_circle = full_map_img.copy()
-        full_map_img_circle = cv.circle(
-            full_map_img_circle,
-            (x_centre, y_centre),
-            50,
+        maxx = int(
+            np.floor((plot_bounds[2] - full_map_transform.c) / full_map_transform.a)
+        )
+        maxy = int(
+            np.floor(
+                (full_map_transform.f - plot_bounds[3]) / abs(full_map_transform.e)
+            )
+        )
+        full_map_img_rect = full_map_img.copy()
+        full_map_img_rect = cv.rectangle(
+            full_map_img_rect,
+            (minx, miny),
+            (maxx, maxy),
             float(full_map_img[~np.isnan(full_map_img)].max()),
             -1,
         )
-        circle_mask = np.zeros_like(full_map_img_circle)
-        circle_mask = cv.circle(
-            circle_mask,
-            (x_centre, y_centre),
-            50,
+        mask = np.zeros_like(full_map_img_rect)
+        mask = cv.rectangle(
+            mask,
+            (minx, miny),
+            (maxx, maxy),
             1.0,
             -1,
         )
@@ -353,17 +362,15 @@ def plot_cross_sections(
         full_map_img = cv.resize(
             full_map_img, dsize=full_map_shape, interpolation=cv.INTER_LINEAR
         )
-        full_map_img_circle = cv.resize(
-            full_map_img_circle, dsize=full_map_shape, interpolation=cv.INTER_LINEAR
+        full_map_img_rect = cv.resize(
+            full_map_img_rect, dsize=full_map_shape, interpolation=cv.INTER_LINEAR
         )
-        circle_mask = cv.resize(
-            circle_mask, dsize=full_map_shape, interpolation=cv.INTER_LINEAR
-        )
-        full_map_img = np.dstack([full_map_img, full_map_img, full_map_img_circle])
+        mask = cv.resize(mask, dsize=full_map_shape, interpolation=cv.INTER_LINEAR)
+        full_map_img = np.dstack([full_map_img_rect, full_map_img, full_map_img_rect])
         full_map_img = rescale_intensities(full_map_img)
-        full_map_img[circle_mask > 0, 0] = 0.0
-        full_map_img[circle_mask > 0, 1] = 0.0
-        full_map_img[circle_mask > 0, 2] = 255.0
+        full_map_img[mask > 0, 0] = 255.0
+        full_map_img[mask > 0, 1] = 0.0
+        full_map_img[mask > 0, 2] = 255.0
 
     with rio.open(plot_image) as ds:
         transform = ds.transform
@@ -419,7 +426,7 @@ def plot_cross_sections(
             [{"type": "xy", "secondary_y": True, "rowspan": 2}, None],
             [None, None],
         ],
-        column_widths=[0.7, 0.3],
+        column_widths=[0.6, 0.4],
         horizontal_spacing=0.1,
     )
 
@@ -440,7 +447,7 @@ def plot_cross_sections(
 
     for j, vlw in enumerate(vals_list_windows_per_raster):
         for i, vals_list in enumerate(vlw):
-            d, v, _, psx = vals_list
+            d, v, _, _ = vals_list
             fig.add_trace(
                 go.Scatter(
                     x=d[0],
@@ -474,7 +481,7 @@ def plot_cross_sections(
             )
 
     for i, vals_list in enumerate(diff_vals_list_windows):
-        d, v, _, psx = vals_list
+        d, v, _, pxs = vals_list
         if diff_opacity != 0:
             fig.add_trace(
                 go.Scatter(
@@ -512,15 +519,15 @@ def plot_cross_sections(
             )
         fig.add_trace(
             go.Scatter(
-                x=[i[0] for i in psx[0]],
-                y=[imh - i[1] for i in psx[0]],
+                x=[i[0] for i in pxs[0]],
+                y=[imh - i[1] for i in pxs[0]],
                 mode="lines",
                 marker=dict(
                     color="blue",
                 ),
                 name="Absolute diff along",
-                hovertemplate="%{text}<extra></extra>",
-                text=[f"{v[0][i]}" for i in range(len(v[0]))],
+                hovertemplate="%{text}",
+                text=[f"{abs(v[0][i])}" for i in range(len(v[0]))],
                 visible=True if i == 0 else False,
             ),
             row=2,
@@ -528,15 +535,15 @@ def plot_cross_sections(
         )
         fig.add_trace(
             go.Scatter(
-                x=[i[0] for i in psx[1]],
-                y=[imh - i[1] for i in psx[1]],
+                x=[i[0] for i in pxs[1]],
+                y=[imh - i[1] for i in pxs[1]],
                 mode="lines",
                 marker=dict(
                     color="red",
                 ),
                 name="Absolute diff across",
-                hovertemplate="%{text}<extra></extra>",
-                text=[f"{v[1][i]}" for i in range(len(v[1]))],
+                hovertemplate="%{text}",
+                text=[f"{abs(v[1][i])}" for i in range(len(v[1]))],
                 visible=True if i == 0 else False,
             ),
             row=2,
