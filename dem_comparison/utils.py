@@ -556,7 +556,8 @@ def enhance_image(
     intensity_range: tuple = (-50, 50),
     color_steps: int = 15,
     white_background: bool = False,
-):
+    return_nan_mask: bool = False,
+) -> tuple | np.ndarray:
     """Enhances an elevation data image
 
     Parameters
@@ -569,11 +570,15 @@ def enhance_image(
         Number of color steps, by default 15
     white_background: bool, optional,
         Set the background to white, by default False
+    return_nan_mask : bool,
+        Returns NaN mask of the image, by default False
 
     Returns
     -------
-    new enhanced image
+    new enhanced image and its NaN mask if `return_nan_mask` is set.
     """
+    nan_mask = np.isnan(img)
+
     img = np.clip(img, intensity_range[0], intensity_range[1])
     r_levels = np.clip(np.arange(255, -color_steps, -color_steps), 0, 255)
     g_levels = np.concat(
@@ -595,7 +600,7 @@ def enhance_image(
         new_b[np.logical_and(img >= edge, img <= edge + intensity_step)] = b_levels[i]
 
     new_img = np.stack((new_r, new_g, new_b), axis=2).astype("uint8")
-    return new_img
+    return (new_img, nan_mask) if return_nan_mask else new_img
 
 
 def bin_metrics(

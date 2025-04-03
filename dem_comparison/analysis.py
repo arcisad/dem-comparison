@@ -583,6 +583,7 @@ def area_of_interest(
     cop30_index_path: Path = Path("../dem_comparison/data/copdem_tindex_filename.gpkg"),
     num_cpu: int = 4,
     slope_maps: bool = True,
+    return_outputs: bool = False,
 ) -> list[Path]:
     """Generates mosaics for a give area of interest
 
@@ -602,12 +603,38 @@ def area_of_interest(
         Number of CPUs for multi-processing, by default 4
     slope_maps : bool, optional
         Whether to generate slope maps or not, by default True
+    return_outputs : bool, optional
+        Only returns the output file paths, by default False,
 
     Returns
     -------
     list[Path]
         List of output file paths.
     """
+
+    diff_mos = Path(f"{aoi_name}_Outputs/{aoi_name}_mosaics/diff_mos.tif")
+    matched_cop_mosaic = Path(
+        f"{aoi_name}_Outputs/{aoi_name}_mosaics/matched_cop_mosaic.tif"
+    )
+    matched_rema_mosaic = Path(
+        f"{aoi_name}_Outputs/{aoi_name}_mosaics/matched_rema_mosaic.tif"
+    )
+
+    slope_diff = Path(f"{aoi_name}_Outputs/{aoi_name}_mosaics/slope_diff.tif")
+    matched_cop_slope = Path(
+        f"{aoi_name}_Outputs/{aoi_name}_mosaics/matched_cop_slope.tif"
+    )
+    matched_rema_slope = Path(
+        f"{aoi_name}_Outputs/{aoi_name}_mosaics/matched_rema_slope.tif"
+    )
+
+    outputs = [diff_mos, matched_rema_mosaic, matched_cop_mosaic]
+
+    if slope_maps:
+        outputs.extend([slope_diff, matched_rema_slope, matched_cop_slope])
+
+    if return_outputs:
+        return outputs
 
     AOI_CRS = 4326
     REMA_CRS = 3031
@@ -645,16 +672,6 @@ def area_of_interest(
         rema_index_path=rema_index_path,
         cop30_index_path=cop30_index_path,
     )
-
-    diff_mos = Path(f"{aoi_name}_Outputs/{aoi_name}_mosaics/diff_mos.tif")
-    matched_cop_mosaic = Path(
-        f"{aoi_name}_Outputs/{aoi_name}_mosaics/matched_cop_mosaic.tif"
-    )
-    matched_rema_mosaic = Path(
-        f"{aoi_name}_Outputs/{aoi_name}_mosaics/matched_rema_mosaic.tif"
-    )
-
-    outputs = [diff_mos, matched_rema_mosaic, matched_cop_mosaic]
 
     os.makedirs(f"{aoi_name}_Outputs/{aoi_name}_mosaics", exist_ok=True)
     diff_arrays = [Path(p) for p in glob.glob(f"{aoi_name}_Outputs/dem_diff/*.tif")]
@@ -712,14 +729,6 @@ def area_of_interest(
 
         slope_diff_array = rema_slope - cop30_slope
 
-        slope_diff = Path(f"{aoi_name}_Outputs/{aoi_name}_mosaics/slope_diff.tif")
-        matched_cop_slope = Path(
-            f"{aoi_name}_Outputs/{aoi_name}_mosaics/matched_cop_slope.tif"
-        )
-        matched_rema_slope = Path(
-            f"{aoi_name}_Outputs/{aoi_name}_mosaics/matched_rema_slope.tif"
-        )
-
         with rio.open(slope_diff, "w", **rema_profile) as ds:
             ds.write(slope_diff_array, 1)
 
@@ -728,8 +737,6 @@ def area_of_interest(
 
         with rio.open(matched_cop_slope, "w", **cop30_profile) as ds:
             ds.write(cop30_slope, 1)
-
-        outputs.extend([slope_diff, matched_rema_slope, matched_cop_slope])
 
     shutil.rmtree(Path(f"TEMP_{aoi_name}"))
     shutil.rmtree(Path(f"{aoi_name}_Outputs/dem_diff"))

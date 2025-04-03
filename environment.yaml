@@ -21,4 +21,5 @@ dependencies:
     - pyyaml==6.0.2
     - gemgis==1.1.8
     - fiona==1.10.1
+    - opencv-python-headless==4.11.0.86
     - git+https://github.com/GeoscienceAustralia/dem-handler.git

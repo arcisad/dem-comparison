@@ -1,14 +1,41 @@
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from pathlib import Path
-from dem_comparison.utils import read_metrics
 import numpy as np
 import rasterio as rio
-from dem_comparison.utils import enhance_image, get_cross_section_data, bin_metrics
+from dem_comparison.utils import (
+    enhance_image,
+    get_cross_section_data,
+    bin_metrics,
+    read_metrics,
+    hillshade,
+)
 from PIL import Image
 import matplotlib.pyplot as plt
 from shapely import Polygon
 import shutil
+import cv2 as cv
+
+
+def rescale_intensities(img: np.ndarray, new_range: tuple = (0, 1)) -> np.ndarray:
+    """Rescales the intensities of an image to a new range
+
+    Parameters
+    ----------
+    img : np.ndarray
+    new_range : tuple, optional
+        by default (0, 1)
+
+    Returns
+    -------
+    np.ndarray
+    """
+    new_image_range = new_range[1] - new_range[0]
+    img_max = img[~np.isnan(img)].max()
+    img_min = img[~np.isnan(img)].min()
+    img_range = img_max - img_min
+    new_img = (((img - img_min) * new_image_range) / img_range) + new_range[0]
+    return new_img
 
 
 def plot_metrics(
@@ -86,6 +113,7 @@ def plot_metrics(
         cols=2,
         specs=[[{"type": "polar" if polar else "xy"}, {"type": "xy"}]],
         column_widths=[0.7, 0.3],
+        horizontal_spacing=0.1,
     )
     if not polar:
         fig.update_layout(xaxis_title="Lat", yaxis_title="Lon")
@@ -208,7 +236,7 @@ def plot_metrics(
                 "ticktext": ["0", "45", "90", "135", "180", "-135", "-90", "-45"],
                 "tickmode": "array",
             },
-            "radialaxis": {"range": [90, 50]},
+            "radialaxis": {"range": [90, 55]},
         }
         fig.update_layout(polar=polar_layout)
     fig.update_layout(bargap=0)
@@ -231,6 +259,8 @@ def plot_cross_sections(
     axes_label: str = "Elevation(m)",
     save_path: Path | None = None,
     diff_opacity: float = 1.0,
+    full_map: Path = Path("resources/mosaic_downsampled_3200m.tif"),
+    hillshade_map: bool = False,
 ):
     """Plots the cross section changes of an area of interest
 
@@ -258,6 +288,10 @@ def plot_cross_sections(
         Path to sabve the outputs, by default None
     diff_opacity : float, optional
         Opacity of the difference plot, by default 1.0
+    full_map: Path, optional
+        Path to the full map of the region, by default Path("resources/mosaic_downsampled_3200m.tif"),
+    hillshade_map : bool,
+        Draws the hillshade of the map, by default False
 
     Returns
     -------
@@ -276,13 +310,76 @@ def plot_cross_sections(
     plot_image = raster[0]
     if diff_raster:
         plot_image = diff_raster
+
+    if not temp_path.exists():
+        temp_path.mkdir(parents=True, exist_ok=True)
+
+    with rio.open(plot_image) as ds:
+        full_map_width = int(ds.profile["width"] / 3.3)
+        full_map_height = int(ds.profile["height"] / 3.3)
+
+    with rio.open(full_map, "r") as ds:
+        full_map_transform = ds.transform
+        full_map_img = ds.read(1)
+        xy_centre = bounds_poly.centroid.xy
+        x_centre = int(
+            np.floor((xy_centre[0][0] - full_map_transform.c) / full_map_transform.a)
+        )
+        y_centre = int(
+            np.floor(
+                (full_map_transform.f - xy_centre[1][0]) / abs(full_map_transform.e)
+            )
+        )
+        full_map_img_circle = full_map_img.copy()
+        full_map_img_circle = cv.circle(
+            full_map_img_circle,
+            (x_centre, y_centre),
+            50,
+            float(full_map_img[~np.isnan(full_map_img)].max()),
+            -1,
+        )
+        circle_mask = np.zeros_like(full_map_img_circle)
+        circle_mask = cv.circle(
+            circle_mask,
+            (x_centre, y_centre),
+            50,
+            1.0,
+            -1,
+        )
+        full_map_shape = (
+            full_map_width,
+            full_map_height,
+        )
+        full_map_img = cv.resize(
+            full_map_img, dsize=full_map_shape, interpolation=cv.INTER_LINEAR
+        )
+        full_map_img_circle = cv.resize(
+            full_map_img_circle, dsize=full_map_shape, interpolation=cv.INTER_LINEAR
+        )
+        circle_mask = cv.resize(
+            circle_mask, dsize=full_map_shape, interpolation=cv.INTER_LINEAR
+        )
+        full_map_img = np.dstack([full_map_img, full_map_img, full_map_img_circle])
+        full_map_img = rescale_intensities(full_map_img)
+        full_map_img[circle_mask > 0, 0] = 0.0
+        full_map_img[circle_mask > 0, 1] = 0.0
+        full_map_img[circle_mask > 0, 2] = 255.0
+
     with rio.open(plot_image) as ds:
         transform = ds.transform
-        img = enhance_image(ds.read(1))
+        if hillshade_map:
+            img = np.dstack([hillshade(ds.read(1))] * 3)
+            img[np.isnan(img)] = 255
+            img = img.astype("uint8")
+        else:
+            img, nan_mask = enhance_image(ds.read(1), return_nan_mask=True)
+            img[nan_mask] = 255
+        for i in range(3):
+            img[0 : full_map_shape[1], 0 : full_map_shape[0]][
+                ~np.isnan(full_map_img)
+            ] = (full_map_img[~np.isnan(full_map_img)]).astype("uint8")
         imh, imw, _ = img.shape
-        if not temp_path.exists():
-            temp_path.mkdir(parents=True, exist_ok=True)
-            plt.imsave(temp_path / "temp_img.jpg", img)
+        plt.imsave(temp_path / "temp_img.jpg", img)
 
     av_step_names = ["Original"] + ["Smoothing: " + str(i) for i in average_steps]
     average_steps = [None] + average_steps
@@ -314,13 +411,16 @@ def plot_cross_sections(
     updatemenu = [{"buttons": buttons, "direction": "down", "showactive": True}]
 
     fig = make_subplots(
-        rows=2,
+        rows=4,
         cols=2,
         specs=[
-            [{"type": "xy", "secondary_y": True}, {"type": "xy", "rowspan": 2}],
-            [{"type": "xy", "secondary_y": True}, None],
+            [{"type": "xy", "secondary_y": True, "rowspan": 2}, None],
+            [None, {"type": "xy", "rowspan": 2}],
+            [{"type": "xy", "secondary_y": True, "rowspan": 2}, None],
+            [None, None],
         ],
         column_widths=[0.7, 0.3],
+        horizontal_spacing=0.1,
     )
 
     vals_list_windows_per_raster = []
@@ -368,7 +468,7 @@ def plot_cross_sections(
                     visible=True if i == 0 else False,
                     showlegend=False,
                 ),
-                row=2,
+                row=3,
                 col=1,
                 secondary_y=False,
             )
@@ -406,7 +506,7 @@ def plot_cross_sections(
                     opacity=diff_opacity,
                     showlegend=False,
                 ),
-                row=2,
+                row=3,
                 col=1,
                 secondary_y=True,
             )
@@ -423,7 +523,7 @@ def plot_cross_sections(
                 text=[f"{v[0][i]}" for i in range(len(v[0]))],
                 visible=True if i == 0 else False,
             ),
-            row=1,
+            row=2,
             col=2,
         )
         fig.add_trace(
@@ -439,7 +539,7 @@ def plot_cross_sections(
                 text=[f"{v[1][i]}" for i in range(len(v[1]))],
                 visible=True if i == 0 else False,
             ),
-            row=1,
+            row=2,
             col=2,
         )
 
@@ -458,7 +558,7 @@ def plot_cross_sections(
             visible=True,
             hoverinfo="none",
         ),
-        row=1,
+        row=2,
         col=2,
     )
 
@@ -473,11 +573,11 @@ def plot_cross_sections(
             sizex=imw,
             sizey=imh,
             sizing="stretch",
-            opacity=0.5,
+            opacity=0.65,
             visible=True,
             layer="below",
         ),
-        row=1,
+        row=2,
         col=2,
     )
     fig.update_layout(showlegend=True)
@@ -490,7 +590,7 @@ def plot_cross_sections(
     )
     fig.update_yaxes(
         title_text=axes_label,
-        row=2,
+        row=3,
         col=1,
         secondary_y=False,
     )
@@ -503,12 +603,12 @@ def plot_cross_sections(
         )
         fig.update_yaxes(
             title_text="ABS Difference(m)",
-            row=2,
+            row=3,
             col=1,
             secondary_y=True,
         )
-    fig.update_xaxes(showgrid=False, showticklabels=False, row=1, col=2)
-    fig.update_yaxes(showgrid=False, showticklabels=False, row=1, col=2)
+    fig.update_xaxes(showgrid=False, showticklabels=False, row=2, col=2)
+    fig.update_yaxes(showgrid=False, showticklabels=False, row=2, col=2)
     fig.update_layout(hovermode="x unified")
 
     shutil.rmtree(temp_path)
