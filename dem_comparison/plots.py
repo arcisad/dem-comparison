@@ -644,13 +644,40 @@ def plot_slope_vs_height(
     height_diff_raster: Path,
     slope_diff_raster: Path,
     bounds_poly: Polygon,
-    slope_clip_range: tuple = (-10, 10),
+    slope_diff_clip_range: tuple = (-10, 10),
     save_path: Path | None = None,
     use_full_data: bool = False,
     raster_names: list[str] | None = None,
     precision: int = 1,
     return_all_figs: bool = False,
 ) -> go.Figure | list[go.Figure]:
+    """Plots height diff vs raster slopes
+
+    Parameters
+    ----------
+    slope_rasters : list[Path]
+        List of rasters with slope data
+    height_diff_raster : Path
+    slope_diff_raster : Path
+    bounds_poly : Polygon
+        Plots data inside this bounding box
+    slope_diff_clip_range : tuple, optional
+        Clips all data based od the values for which their corresponding slope diffs are whithin this range, by default (-10, 10)
+    save_path : Path | None, optional
+        Path to save the plot, by default None
+    use_full_data : bool, optional
+        USe full data instead of the cross lines, by default False
+    raster_names : list[str] | None, optional
+        Names of the ratsers to be used in the plots, by default None
+    precision : int, optional
+        Number of decimal points for precision of the slopes, by default 1
+    return_all_figs : bool, optional
+        Returns list of figures instead of a single figure with subplots, by default False
+
+    Returns
+    -------
+    go.Figure | list[go.Figure]
+    """
     if raster_names is None:
         raster_names = [p.stem for p in slope_rasters]
 
@@ -659,8 +686,8 @@ def plot_slope_vs_height(
         slope_diff_data = rio.open(slope_diff_raster).read(1)
 
         idx = np.logical_and(
-            (slope_clip_range[0] < slope_diff_data),
-            (slope_diff_data < slope_clip_range[1]),
+            (slope_diff_clip_range[0] < slope_diff_data),
+            (slope_diff_data < slope_diff_clip_range[1]),
         )
         height_diff_data = np.abs(height_diff_data[idx])
         slope_diff_data = slope_diff_data[idx]
@@ -706,8 +733,8 @@ def plot_slope_vs_height(
             slope_data.append(get_cross_section_data(sr, bounds_poly))
 
         idx = np.logical_and(
-            (slope_clip_range[0] < slope_diff_data[1][0]),
-            (slope_diff_data[1][0] < slope_clip_range[1]),
+            (slope_diff_clip_range[0] < slope_diff_data[1][0]),
+            (slope_diff_data[1][0] < slope_diff_clip_range[1]),
         )
         along_hdiff = height_diff_data[1][0][idx]
         along_sdiff = slope_diff_data[1][0][idx]
@@ -718,8 +745,8 @@ def plot_slope_vs_height(
             slope_data_along.append(np.round(d[1][0][idx], precision))
 
         idx = np.logical_and(
-            (slope_clip_range[0] < slope_diff_data[1][1]),
-            (slope_diff_data[1][1] < slope_clip_range[1]),
+            (slope_diff_clip_range[0] < slope_diff_data[1][1]),
+            (slope_diff_data[1][1] < slope_diff_clip_range[1]),
         )
         across_hdiff = height_diff_data[1][1][idx]
         across_sdiff = slope_diff_data[1][1][idx]
@@ -759,12 +786,14 @@ def plot_slope_vs_height(
             .groupby(["Direction", "Slope"])
             .mean()
             .reset_index()
+            .iloc[::-1]
         )
         slope_df_grouped_std = (
             slope_df.drop("Name", axis=1)
             .groupby(["Direction", "Slope"])
             .std()
             .reset_index()
+            .iloc[::-1]
         )
 
     dif_fig = px.scatter(
@@ -772,14 +801,40 @@ def plot_slope_vs_height(
     )
 
     if use_full_data:
-        slope_fig_mean = px.scatter(slope_df_grouped_mean, x="Slope", y="Height_Diff")
-        slope_fig_std = px.scatter(slope_df_grouped_std, x="Slope", y="Height_Diff")
-    else:
         slope_fig_mean = px.scatter(
-            slope_df_grouped_mean, x="Slope", y="Height_Diff", color="Direction"
+            slope_df_grouped_mean,
+            x="Slope",
+            y="Height_Diff",
+            labels={
+                "Height_Diff": "Mean height diff",
+            },
         )
         slope_fig_std = px.scatter(
-            slope_df_grouped_std, x="Slope", y="Height_Diff", color="Direction"
+            slope_df_grouped_std,
+            x="Slope",
+            y="Height_Diff",
+            labels={
+                "Height_Diff": "Height diff STD",
+            },
+        )
+    else:
+        slope_fig_mean = px.scatter(
+            slope_df_grouped_mean,
+            x="Slope",
+            y="Height_Diff",
+            color="Direction",
+            labels={
+                "Height_Diff": "Mean height diff",
+            },
+        )
+        slope_fig_std = px.scatter(
+            slope_df_grouped_std,
+            x="Slope",
+            y="Height_Diff",
+            color="Direction",
+            labels={
+                "Height_Diff": "Height diff STD",
+            },
         )
 
     figures = [dif_fig, slope_fig_mean, slope_fig_std]
