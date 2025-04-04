@@ -504,10 +504,10 @@ def plot_cross_sections(
                     marker=dict(
                         color="blue",
                     ),
-                    name="Diff",
+                    name="Absolute diff along",
                     visible=True if i == 0 else False,
                     opacity=diff_opacity,
-                    showlegend=False,
+                    # showlegend=False,
                 ),
                 row=1,
                 col=1,
@@ -521,10 +521,10 @@ def plot_cross_sections(
                     marker=dict(
                         color="red",
                     ),
-                    name="Diff",
+                    name="Absolute diff across",
                     visible=True if i == 0 else False,
                     opacity=diff_opacity,
-                    showlegend=False,
+                    # showlegend=False,
                 ),
                 row=3,
                 col=1,
@@ -538,7 +538,7 @@ def plot_cross_sections(
                 marker=dict(
                     color="blue",
                 ),
-                name="Absolute diff along",
+                name="Absolute diff (map)",
                 hovertemplate="%{text}",
                 text=[f"{abs(v[0][i])}" for i in range(len(v[0]))],
                 visible=True if i == 0 else False,
@@ -554,7 +554,7 @@ def plot_cross_sections(
                 marker=dict(
                     color="red",
                 ),
-                name="Absolute diff across",
+                name="Absolute diff (map)",
                 hovertemplate="%{text}",
                 text=[f"{abs(v[1][i])}" for i in range(len(v[1]))],
                 visible=True if i == 0 else False,
