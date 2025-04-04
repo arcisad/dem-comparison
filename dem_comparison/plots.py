@@ -1,4 +1,5 @@
 import plotly.graph_objects as go
+import plotly.express as px
 from plotly.subplots import make_subplots
 from pathlib import Path
 import numpy as np
@@ -16,6 +17,7 @@ import matplotlib.pyplot as plt
 from shapely import Polygon
 import shutil
 import cv2 as cv
+import pandas as pd
 
 
 def rescale_intensities(img: np.ndarray, new_range: tuple = (0, 1)) -> np.ndarray:
@@ -262,6 +264,8 @@ def plot_cross_sections(
     diff_opacity: float = 1.0,
     full_map: Path = Path("resources/mosaic_downsampled_3200m.tif"),
     hillshade_map: bool = False,
+    map_intensity_range: tuple = (-50, 50),
+    map_color_steps: int = 15,
 ):
     """Plots the cross section changes of an area of interest
 
@@ -293,6 +297,10 @@ def plot_cross_sections(
         Path to the full map of the region, by default Path("resources/mosaic_downsampled_3200m.tif"),
     hillshade_map : bool,
         Draws the hillshade of the map, by default False
+    map_intensity_range : tuple, optional
+        Intensity clipping range in the background map, by default (-50, 50)
+    map_color_steps : int, optional
+        Number of color steps in the background map, by default 15
 
     Returns
     -------
@@ -379,7 +387,12 @@ def plot_cross_sections(
             img[np.isnan(img)] = 255
             img = img.astype("uint8")
         else:
-            img, nan_mask = enhance_image(ds.read(1), return_nan_mask=True)
+            img, nan_mask = enhance_image(
+                ds.read(1),
+                return_nan_mask=True,
+                intensity_range=map_intensity_range,
+                color_steps=map_color_steps,
+            )
             img[nan_mask] = 255
         for i in range(3):
             img[0 : full_map_shape[1], 0 : full_map_shape[0]][
@@ -624,3 +637,178 @@ def plot_cross_sections(
         fig.write_html(save_path)
 
     return fig
+
+
+def plot_slope_vs_height(
+    slope_rasters: list[Path],
+    height_diff_raster: Path,
+    slope_diff_raster: Path,
+    bounds_poly: Polygon,
+    slope_clip_range: tuple = (-10, 10),
+    save_path: Path | None = None,
+    use_full_data: bool = False,
+    raster_names: list[str] | None = None,
+    precision: int = 1,
+    return_all_figs: bool = False,
+) -> go.Figure | list[go.Figure]:
+    if raster_names is None:
+        raster_names = [p.stem for p in slope_rasters]
+
+    if use_full_data:
+        height_diff_data = rio.open(height_diff_raster).read(1)
+        slope_diff_data = rio.open(slope_diff_raster).read(1)
+
+        idx = np.logical_and(
+            (slope_clip_range[0] < slope_diff_data),
+            (slope_diff_data < slope_clip_range[1]),
+        )
+        height_diff_data = np.abs(height_diff_data[idx])
+        slope_diff_data = slope_diff_data[idx]
+
+        slope_data = []
+        for sr in slope_rasters:
+            data = rio.open(sr).read(1)[idx]
+            slope_data.append(data)
+
+        diff_df = pd.DataFrame(
+            {
+                "Direction": np.repeat("Everywhere", len(slope_diff_data)),
+                "Slope_Diff": slope_diff_data,
+                "Height_Diff": height_diff_data,
+            }
+        )
+
+        names_list = []
+        slopes_list = []
+        for i, d in enumerate(slope_data):
+            slopes_list.extend(np.round(d, precision))
+            names_list.extend([raster_names[i]] * len(d))
+
+        slope_dict = {
+            "Name": names_list,
+            "Slope": slopes_list,
+            "Height_Diff": np.tile(height_diff_data, len(slope_data)),
+            "Direction": np.repeat("Everywhere", len(slopes_list)),
+        }
+        slope_df = pd.DataFrame(slope_dict)
+        slope_df_grouped_mean = (
+            slope_df[["Slope", "Height_Diff"]].groupby("Slope").mean().reset_index()
+        )
+        slope_df_grouped_std = (
+            slope_df[["Slope", "Height_Diff"]].groupby("Slope").std().reset_index()
+        )
+    else:
+        height_diff_data = get_cross_section_data(height_diff_raster, bounds_poly)
+        slope_diff_data = get_cross_section_data(slope_diff_raster, bounds_poly)
+
+        slope_data = []
+        for sr in slope_rasters:
+            slope_data.append(get_cross_section_data(sr, bounds_poly))
+
+        idx = np.logical_and(
+            (slope_clip_range[0] < slope_diff_data[1][0]),
+            (slope_diff_data[1][0] < slope_clip_range[1]),
+        )
+        along_hdiff = height_diff_data[1][0][idx]
+        along_sdiff = slope_diff_data[1][0][idx]
+        along_name = np.repeat("Along", len(along_hdiff))
+
+        slope_data_along = []
+        for d in slope_data:
+            slope_data_along.append(np.round(d[1][0][idx], precision))
+
+        idx = np.logical_and(
+            (slope_clip_range[0] < slope_diff_data[1][1]),
+            (slope_diff_data[1][1] < slope_clip_range[1]),
+        )
+        across_hdiff = height_diff_data[1][1][idx]
+        across_sdiff = slope_diff_data[1][1][idx]
+        across_name = np.repeat("Across", len(across_hdiff))
+
+        slope_data_across = []
+        for d in slope_data:
+            slope_data_across.append(np.round(d[1][1][idx], precision))
+
+        hdiff = np.abs(np.concat([along_hdiff, across_hdiff]))
+        sdiff = np.concat([along_sdiff, across_sdiff])
+        direction = np.concat([along_name, across_name])
+
+        slopes_list = []
+        names_list = []
+        for i, (dal, daa) in enumerate(zip(slope_data_along, slope_data_across)):
+            data = np.concat([dal, daa])
+            slopes_list.extend(data)
+            names_list.extend([raster_names[i]] * len(data))
+
+        diff_df = pd.DataFrame(
+            {
+                "Direction": direction,
+                "Slope_Diff": sdiff,
+                "Height_Diff": hdiff,
+            }
+        )
+        slope_dict = {
+            "Name": names_list,
+            "Slope": slopes_list,
+            "Height_Diff": np.tile(hdiff, len(slope_data)),
+            "Direction": np.tile(direction, len(slope_data)),
+        }
+        slope_df = pd.DataFrame(slope_dict)
+        slope_df_grouped_mean = (
+            slope_df.drop("Name", axis=1)
+            .groupby(["Direction", "Slope"])
+            .mean()
+            .reset_index()
+        )
+        slope_df_grouped_std = (
+            slope_df.drop("Name", axis=1)
+            .groupby(["Direction", "Slope"])
+            .std()
+            .reset_index()
+        )
+
+    dif_fig = px.scatter(
+        diff_df, x="Height_Diff", y="Slope_Diff", color="Direction", trendline="ols"
+    )
+
+    if use_full_data:
+        slope_fig_mean = px.scatter(slope_df_grouped_mean, x="Slope", y="Height_Diff")
+        slope_fig_std = px.scatter(slope_df_grouped_std, x="Slope", y="Height_Diff")
+    else:
+        slope_fig_mean = px.scatter(
+            slope_df_grouped_mean, x="Slope", y="Height_Diff", color="Direction"
+        )
+        slope_fig_std = px.scatter(
+            slope_df_grouped_std, x="Slope", y="Height_Diff", color="Direction"
+        )
+
+    figures = [dif_fig, slope_fig_mean, slope_fig_std]
+    fig = make_subplots(
+        rows=len(figures),
+        cols=1,
+        specs=[[{"type": "xy"}]] * len(figures),
+        # vertical_spacing=0.1,
+    )
+    for i, figure in enumerate(figures):
+        for trace in range(len(figure["data"])):
+            if i != 0:
+                figure["data"][trace]["showlegend"] = False
+            fig.add_trace(figure["data"][trace], row=i + 1, col=1)
+
+    fig.update_xaxes(title="ABS Height diff (m)", row=1, col=1)
+    fig.update_yaxes(title="Slope diff (°)", row=1, col=1)
+
+    fig.update_xaxes(title="Slope (°)", row=2, col=1)
+    fig.update_yaxes(
+        title="Mean ABS height diff (m)<br></br>Mean Absolute Error (MAE)", row=2, col=1
+    )
+
+    fig.update_xaxes(title="Slope (°)", row=3, col=1)
+    fig.update_yaxes(
+        title="Height diff STD (m)<br></br>Standard Error of Mean (SEM)", row=3, col=1
+    )
+
+    if save_path:
+        fig.write_html(save_path)
+
+    return figures if return_all_figs else fig
