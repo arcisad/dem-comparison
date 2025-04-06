@@ -13,11 +13,14 @@ from dem_comparison.utils import (
 )
 from dem_handler.utils.spatial import resize_bounds, BoundingBox
 from PIL import Image
+import PIL
 import matplotlib.pyplot as plt
 from shapely import Polygon
 import shutil
 import cv2 as cv
 import pandas as pd
+
+PIL.Image.MAX_IMAGE_PIXELS = 933120000
 
 
 def rescale_intensities(img: np.ndarray, new_range: tuple = (0, 1)) -> np.ndarray:
