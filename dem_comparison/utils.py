@@ -12,6 +12,8 @@ import shutil
 from itertools import product
 from shapely import LineString, Point, Polygon
 from rasterio.transform import Affine
+from osgeo import ogr
+from shapely import ops, from_wkt
 
 TEST_PATH = Path("tests")
 GEOID_PATH = TEST_PATH / "data/geoid/egm_08_geoid.tif"
@@ -662,3 +664,25 @@ def bin_metrics(
         (step_vals[0] if type(bins) is int else step_vals),
         diff_list.tolist(),
     )
+
+
+def kml_to_poly(
+    kml_file: Path,
+) -> Polygon:
+    """Reads KML file and returns Shaply Polygon
+
+    Parameters
+    ----------
+    kml_file : Path
+
+    Returns
+    -------
+    Polygon
+    """
+    driver = ogr.GetDriverByName("KML")
+    datasource = driver.Open(kml_file)
+    layer = datasource.GetLayer()
+    feat = layer.GetNextFeature()
+    geom = feat.geometry()
+    poly = geom.ExportToIsoWkt()
+    return ops.transform(lambda x, y, z=None: (x, y), from_wkt(poly))

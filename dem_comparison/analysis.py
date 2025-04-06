@@ -680,7 +680,13 @@ def area_of_interest(
     diff_arrays = [Path(p) for p in glob.glob(f"{aoi_name}_Outputs/dem_diff/*.tif")]
     if diff_mos.exists():
         os.remove(diff_mos)
-    simple_mosaic(diff_arrays, diff_mos, force_bounds=aoi_poly.bounds)
+
+    if src_crs == REMA_CRS:
+        rema_bounds = aoi_poly.bounds
+    else:
+        rema_bounds = transform_polygon(aoi_poly, src_crs, REMA_CRS).bounds
+
+    simple_mosaic(diff_arrays, diff_mos, force_bounds=rema_bounds)
 
     with rio.open(diff_mos, "r") as ds:
         tr = ds.transform
@@ -698,10 +704,6 @@ def area_of_interest(
         force_bounds=aoi_bounds,
     )
 
-    if src_crs == REMA_CRS:
-        rema_bounds = aoi_poly.bounds
-    else:
-        rema_bounds = transform_polygon(aoi_poly, src_crs, REMA_CRS).bounds
     simple_mosaic(
         rema_dems,
         rema_mosaic,
