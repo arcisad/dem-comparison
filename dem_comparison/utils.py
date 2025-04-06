@@ -462,7 +462,7 @@ def get_cross_lines(poly: Polygon) -> tuple:
     l2_points = [(points[0] + points[3]) / 2, (points[1] + points[2]) / 2]
     l1 = LineString([Point(*l1_points[0]), Point(*l1_points[1])])
     l2 = LineString([Point(*l2_points[0]), Point(*l2_points[1])])
-    return l1, l2
+    return (l1, l2) if l1.length > l2.length else (l2, l1)
 
 
 def get_line_points(l: LineString, step_size: float = 30) -> tuple:
