@@ -585,13 +585,14 @@ def enhance_image(
     r_levels = np.clip(np.arange(255, -color_steps, -color_steps), 0, 255)
     g_levels = np.concat(
         [
-            np.arange(0, 255, color_steps * 2),
-            np.arange(240, -color_steps * 2, -color_steps * 2),
+            np.clip(np.arange(0, 255, color_steps * 2), 0, 255),
+            np.clip(
+                np.arange(255 - color_steps, -color_steps * 2, -color_steps * 2), 0, 255
+            ),
         ]
     )
-    b_levels = np.clip(np.arange(0, 260, color_steps), 0, 255)
-    color_levels = [np.array([el[0], 0, el[1]]) for el in zip(r_levels, b_levels)]
-    intensity_step = (intensity_range[1] - intensity_range[0]) / len(color_levels)
+    b_levels = np.clip(np.arange(0, 255 + color_steps, color_steps), 0, 255)
+    intensity_step = (intensity_range[1] - intensity_range[0]) / len(r_levels)
     left_edges = np.arange(intensity_range[0], intensity_range[1], intensity_step)
     new_r = 255 * np.ones_like(img) if white_background else np.zeros_like(img)
     new_b = 255 * np.ones_like(img) if white_background else np.zeros_like(img)
