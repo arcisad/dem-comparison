@@ -14,6 +14,12 @@ from shapely import LineString, Point, Polygon
 from rasterio.transform import Affine
 from osgeo import ogr
 from shapely import ops, from_wkt
+from botocore import UNSIGNED
+from botocore.config import Config
+import aioboto3
+from dem_handler.download.aio_aws import single_upload_process
+import glob
+import multiprocess as mp
 
 TEST_PATH = Path("tests")
 GEOID_PATH = TEST_PATH / "data/geoid/egm_08_geoid.tif"
@@ -687,3 +693,83 @@ def kml_to_poly(
     geom = feat.geometry()
     poly = geom.ExportToIsoWkt()
     return ops.transform(lambda x, y, z=None: (x, y), from_wkt(poly))
+
+
+def bulk_upload_files(
+    s3_dir: Path,
+    local_dir: Path,
+    bucket_name: str = "deant-data-public-dev",
+    config: Config = Config(
+        region_name="ap-southeast-2",
+        retries={"max_attempts": 3, "mode": "standard"},
+    ),
+    num_cpus: int = 1,
+    num_tasks: int = 8,
+    session: aioboto3.Session | None = None,
+) -> list[Path]:
+    """Asynchronous upload of objects to S3
+
+    Parameters
+    ----------
+    s3_dir : Path
+        S3 directory to upload files to
+    local_dir : Path
+        Local path to files.
+    bucket_name : str, optional
+        Name of the S3 bucket, by default "deant-data-public-dev"
+    config : Config, optional
+        botorcore Config, by default Config( region_name="ap-southeast-2", retries={"max_attempts": 3, "mode": "standard"}, )
+    num_cpus : int, optional
+        Number of cpus to be used for multi-processing, by default 1.
+        Setting to -1 will use all available cpus
+    num_tasks : int, optional
+        Number of tasks to be run in async mode, by default 8
+        If num_cpus > 1, each task will be assigned to a cpu and will run in async mode on that cpu (multiple threads).
+        Setting to -1 will transfer all tiles in one task.
+    session : aioboto3.Session | None, optional
+        aioboto3.Session, by default None
+
+    Returns
+    -------
+    list[Path]
+        List of remote paths on S3.
+    """
+
+    if not session:
+        session = aioboto3.Session()
+        config.signature_version = ""
+
+    file_paths = [
+        Path(t)
+        for t in glob.glob(f"{local_dir}/**", recursive=True)
+        if Path(t).is_file()
+    ]
+    files_dirs = [Path(*tp.parts[1:]) for tp in file_paths]
+    file_objects = [s3_dir / td for td in files_dirs]
+
+    upload_list_chunk = (
+        [file_objects[i::num_tasks] for i in range(num_tasks)]
+        if num_tasks != -1
+        else [file_objects]
+    )
+    local_list_chunk = (
+        [file_paths[i::num_tasks] for i in range(num_tasks)]
+        if num_tasks != -1
+        else [file_paths]
+    )
+    if num_cpus == 1:
+        for ch, ll in zip(upload_list_chunk, local_list_chunk):
+            single_upload_process(ch, ll, config, bucket_name, session)
+    else:
+        if num_cpus == -1:
+            num_cpus = mp.cpu_count()
+        with mp.Pool(num_cpus) as p:
+            p.starmap(
+                single_upload_process,
+                [
+                    (el[0], el[1], config, bucket_name, session)
+                    for el in list(zip(upload_list_chunk, local_list_chunk))
+                ],
+            )
+
+    return file_objects

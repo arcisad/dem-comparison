@@ -269,6 +269,7 @@ def plot_cross_sections(
     hillshade_map: bool = False,
     map_intensity_range: tuple = (-50, 50),
     map_color_steps: int = 15,
+    aoi_name: str = "",
 ):
     """Plots the cross section changes of an area of interest
 
@@ -304,6 +305,8 @@ def plot_cross_sections(
         Intensity clipping range in the background map, by default (-50, 50)
     map_color_steps : int, optional
         Number of color steps in the background map, by default 15
+    aoi_name : str, optional
+        Name of the area of interest to go into plot title, by default ""
 
     Returns
     -------
@@ -633,6 +636,10 @@ def plot_cross_sections(
     fig.update_xaxes(showgrid=False, showticklabels=False, row=2, col=2)
     fig.update_yaxes(showgrid=False, showticklabels=False, row=2, col=2)
     fig.update_layout(hovermode="x unified")
+    aoi_str = f" for {aoi_name}" if aoi_name != "" else ""
+    fig.update_layout(
+        title=dict(text=f"Cross section plot{aoi_str}, resolution: {dist_step}m")
+    )
 
     shutil.rmtree(temp_path)
 
@@ -653,6 +660,7 @@ def plot_slope_vs_height(
     raster_names: list[str] | None = None,
     precision: int = 1,
     return_all_figs: bool = False,
+    aoi_name: str = "",
 ) -> go.Figure | list[go.Figure]:
     """Plots height diff vs raster slopes
 
@@ -676,6 +684,8 @@ def plot_slope_vs_height(
         Number of decimal points for precision of the slopes, by default 1
     return_all_figs : bool, optional
         Returns list of figures instead of a single figure with subplots, by default False
+    aoi_name : str, optional
+        Name of the area of interest to go into plot title, by default ""
 
     Returns
     -------
@@ -800,7 +810,7 @@ def plot_slope_vs_height(
         )
 
     dif_fig = px.scatter(
-        diff_df, x="Height_Diff", y="Slope_Diff", color="Direction", trendline="ols"
+        diff_df, x="Slope_Diff", y="Height_Diff", color="Direction", trendline="ols"
     )
 
     if use_full_data:
@@ -853,8 +863,8 @@ def plot_slope_vs_height(
                 figure["data"][trace]["showlegend"] = False
             fig.add_trace(figure["data"][trace], row=i + 1, col=1)
 
-    fig.update_xaxes(title="ABS Height diff (m)", row=1, col=1)
-    fig.update_yaxes(title="Slope diff (°)", row=1, col=1)
+    fig.update_xaxes(title="Slope diff (°)", row=1, col=1)
+    fig.update_yaxes(title="ABS Height diff (m)", row=1, col=1)
 
     fig.update_xaxes(title="Slope (°)", row=2, col=1)
     fig.update_yaxes(
@@ -865,6 +875,8 @@ def plot_slope_vs_height(
     fig.update_yaxes(
         title="Height diff STD (m)<br></br>Standard Error of Mean (SEM)", row=3, col=1
     )
+    aoi_str = f" for {aoi_name}" if aoi_name != "" else ""
+    fig.update_layout(title=dict(text=f"Elevation vs Slope plot{aoi_str}"))
 
     if save_path:
         fig.write_html(save_path)
