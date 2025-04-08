@@ -188,6 +188,7 @@ def simple_mosaic(
     fill_value: float | int | list[float] | list[int] | None = None,
     force_bounds: tuple | None = None,
     target_crs: int | None = None,
+    resampling: str = "bilinear",
 ) -> None:
     """Making simple mosaic of all given raster files
 
@@ -207,8 +208,10 @@ def simple_mosaic(
         Fills the mosaic with a single value if provided, or fill each raster with the corresponding value from list, by default None
     force_bounds: tuple | None, optional
         Forces the mosaic to this bounding box if provided, otherwise it uses the outer bounds of all rasters, by default None
-    target_crs: str | None, optional,
+    target_crs: str | None, optional
         Reprojects the rasters to the provided CRS, by default None
+    resampling: str, optional
+        Resampling mode, by default "bilinear"
     """
     force_resolution = type(resolution) is not str
 
@@ -268,7 +271,7 @@ def simple_mosaic(
         VRTNodata=np.nan,
         xRes=xRes,
         yRes=yRes,
-        resampleAlg="bilinear",
+        resampleAlg=resampling,
     )
     vrt_path = str(save_path).replace(".tif", ".vrt")
     ds = gdal.BuildVRT(vrt_path, dem_rasters, options=VRT_options)

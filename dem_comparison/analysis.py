@@ -18,6 +18,7 @@ import aioboto3
 import glob
 from shapely import from_wkt
 import gemgis as gg
+from rasterio.enums import Resampling
 
 
 def analyse_difference(
@@ -719,6 +720,7 @@ def area_of_interest(
         convert_dB=False,
         save_path_1=matched_rema_mosaic,
         save_path_2=matched_cop_mosaic,
+        resampling=Resampling.cubic,  # This one gets smooth slopes and avoid aliasing stripes
     )
 
     if not keep_temp_files:
