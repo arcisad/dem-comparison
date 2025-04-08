@@ -14,6 +14,7 @@ import shutil
 import pickle
 import geopandas as gpd
 from dem_handler.download.aio_aws import bulk_upload_dem_tiles
+from dem_handler.utils.rio_tools import reproject_arr_to_new_crs
 import aioboto3
 import glob
 from shapely import from_wkt
@@ -705,6 +706,20 @@ def area_of_interest(
         force_bounds=aoi_bounds,
     )
 
+    with rio.open(cop_mosaic, "r") as ds:
+        profile = ds.profile
+        img = ds.read(1)
+        # This resampling mode gets smooth slopes and avoid aliasing stripes
+        repr_img, repr_profile = reproject_arr_to_new_crs(
+            img, profile, 3031, resampling="cubic"
+        )
+        repr_img = repr_img.squeeze()
+
+    repr_cop_mosaic = Path(f"{aoi_name}_Outputs/repr_cop_mosaic.tif")
+
+    with rio.open(repr_cop_mosaic, "w", **repr_profile) as ds:
+        ds.write(repr_img, 1)
+
     simple_mosaic(
         rema_dems,
         rema_mosaic,
@@ -720,7 +735,6 @@ def area_of_interest(
         convert_dB=False,
         save_path_1=matched_rema_mosaic,
         save_path_2=matched_cop_mosaic,
-        resampling=Resampling.cubic,  # This one gets smooth slopes and avoid aliasing stripes
     )
 
     if not keep_temp_files:
@@ -728,24 +742,35 @@ def area_of_interest(
         os.remove(rema_mosaic)
 
     if slope_maps:
-        with rio.open(matched_cop_mosaic, "r") as ds:
-            cop30_slope = gg.raster.calculate_slope(ds)
-            cop30_profile = ds.profile
+        cop_slope_file = Path(f"{aoi_name}_Outputs/cop_slope.tif")
+        rema_slope_file = Path(f"{aoi_name}_Outputs/rema_slope.tif")
 
-        with rio.open(matched_rema_mosaic, "r") as ds:
+        with rio.open(repr_cop_mosaic, "r") as ds:
+            cop_slope = gg.raster.calculate_slope(ds)
+            cop_slope_profile = ds.profile
+
+        with rio.open(cop_slope_file, "w", **cop_slope_profile) as ds:
+            ds.write(cop_slope, 1)
+
+        with rio.open(rema_mosaic, "r") as ds:
             rema_slope = gg.raster.calculate_slope(ds)
-            rema_profile = ds.profile
+            rema_slope_profile = ds.profile
 
-        slope_diff_array = rema_slope - cop30_slope
-
-        with rio.open(slope_diff, "w", **rema_profile) as ds:
-            ds.write(slope_diff_array, 1)
-
-        with rio.open(matched_rema_slope, "w", **rema_profile) as ds:
+        with rio.open(rema_slope_file, "w", **rema_slope_profile) as ds:
             ds.write(rema_slope, 1)
 
-        with rio.open(matched_cop_slope, "w", **cop30_profile) as ds:
-            ds.write(cop30_slope, 1)
+        rema_slope_arr, cop_slope_arr = reproject_match_tifs(
+            rema_slope_file,
+            cop_slope_file,
+            target_crs=REMA_CRS,
+            verbose=True,
+            convert_dB=False,
+            save_path_1=matched_rema_slope,
+            save_path_2=matched_cop_slope,
+        )
+        slope_diff_array = rema_slope_arr - cop_slope_arr
+        slope_diff_array.rio.write_nodata(np.nan, inplace=True)
+        slope_diff_array.rio.to_raster(slope_diff)
 
     if not keep_temp_files:
         shutil.rmtree(Path(f"TEMP_{aoi_name}"))
