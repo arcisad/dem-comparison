@@ -5,7 +5,8 @@ import numpy as np
 import rioxarray
 import rasterio as rio
 from osgeo import gdal
-from dem_handler.utils.spatial import resize_bounds, BoundingBox
+from rasterio.merge import merge
+from dem_handler.utils.spatial import resize_bounds, BoundingBox, transform_polygon
 import os
 import pickle
 import shutil
@@ -13,13 +14,15 @@ from itertools import product
 from shapely import LineString, Point, Polygon
 from rasterio.transform import Affine
 from osgeo import ogr
-from shapely import ops, from_wkt
+from shapely import ops, from_wkt, box
 from botocore import UNSIGNED
 from botocore.config import Config
 import aioboto3
 from dem_handler.download.aio_aws import single_upload_process
 import glob
 import multiprocess as mp
+from dem_handler.utils.rio_tools import reproject_arr_to_new_crs
+from osgeo import gdal
 
 TEST_PATH = Path("tests")
 GEOID_PATH = TEST_PATH / "data/geoid/egm_08_geoid.tif"
@@ -184,6 +187,7 @@ def simple_mosaic(
     keep_vrt: bool = False,
     fill_value: float | int | list[float] | list[int] | None = None,
     force_bounds: tuple | None = None,
+    target_crs: int | None = None,
 ) -> None:
     """Making simple mosaic of all given raster files
 
@@ -200,11 +204,35 @@ def simple_mosaic(
     keep_vrt: bool, optional
         Keeps the vrt file.
     fill_value: float | int | list[float] | list[int] | None, optional
-        Fills the mosaic with a singl value if provided, or fill each raster with the corresponding value from list, by default None
+        Fills the mosaic with a single value if provided, or fill each raster with the corresponding value from list, by default None
     force_bounds: tuple | None, optional
         Forces the mosaic to this bounding box if provided, otherwise it uses the outer bounds of all rasters, by default None
+    target_crs: str | None, optional,
+        Reprojects the rasters to the provided CRS, by default None
     """
     force_resolution = type(resolution) is not str
+
+    if target_crs:
+        temp_dir = Path("temp_reprojection_dir")
+        temp_dir.mkdir(exist_ok=True, parents=True)
+
+        with rio.open(dem_rasters[0]) as ds:
+            src_crs = int(ds.crs.to_epsg())
+
+        reproj_rasters = []
+        for i, r in enumerate(dem_rasters):
+            reproj_rasters.append(temp_dir / f"rep_{i}.tif")
+            gdal.Warp(
+                temp_dir / f"rep_{i}.tif",
+                r,
+                dstSRS=f"EPSG:{target_crs}",
+                resampleAlg="bilinear",
+            )
+        if force_bounds:
+            force_bounds = transform_polygon(
+                box(*force_bounds), src_crs, target_crs
+            ).bounds
+        dem_rasters = reproj_rasters
 
     rasters = [rio.open(ds) for ds in dem_rasters]
     lefts = [r.bounds.left for r in rasters]
@@ -215,7 +243,7 @@ def simple_mosaic(
 
     if type(fill_value) is list:
         temp_dir = Path("temp_filled_rasters_dir")
-        temp_dir.mkdir(exist_ok=True)
+        temp_dir.mkdir(exist_ok=True, parents=True)
         for i in range(len(rasters)):
             img = rasters[i].read(1)
             img[~np.isnan(img)] = fill_value[i]
@@ -240,6 +268,7 @@ def simple_mosaic(
         VRTNodata=np.nan,
         xRes=xRes,
         yRes=yRes,
+        resampleAlg="bilinear",
     )
     vrt_path = str(save_path).replace(".tif", ".vrt")
     ds = gdal.BuildVRT(vrt_path, dem_rasters, options=VRT_options)
@@ -259,6 +288,7 @@ def simple_mosaic(
         os.remove(vrt_path)
 
     shutil.rmtree("temp_filled_rasters_dir", ignore_errors=True)
+    shutil.rmtree("temp_reprojection_dir", ignore_errors=True)
     print(f"Mosaic created.")
     return None
 
@@ -675,7 +705,7 @@ def bin_metrics(
 
 def kml_to_poly(
     kml_file: Path,
-) -> Polygon:
+) -> Polygon | list[Polygon]:
     """Reads KML file and returns Shaply Polygon
 
     Parameters
@@ -689,10 +719,14 @@ def kml_to_poly(
     driver = ogr.GetDriverByName("KML")
     datasource = driver.Open(kml_file)
     layer = datasource.GetLayer()
+    poly_list = []
     feat = layer.GetNextFeature()
-    geom = feat.geometry()
-    poly = geom.ExportToIsoWkt()
-    return ops.transform(lambda x, y, z=None: (x, y), from_wkt(poly))
+    while feat is not None:
+        geom = feat.geometry()
+        poly = geom.ExportToIsoWkt()
+        poly_list.append(ops.transform(lambda x, y, z=None: (x, y), from_wkt(poly)))
+        feat = layer.GetNextFeature()
+    return poly_list[0] if len(poly_list) == 1 else poly_list
 
 
 def bulk_upload_files(

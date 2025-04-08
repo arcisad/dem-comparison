@@ -462,11 +462,11 @@ def query_dems(
         required_cop_dem = downloaded_cop_files[0]
         print(f"Required COP DEM: {required_cop_dem}")
 
+    temp_cop_dem_raster = rio.open(required_cop_dem)
     geoid_tif_path = temp_path / "geoid.tif"
     if not geoid_tif_path.exists():
-        download_egm_08_geoid(geoid_tif_path, bounds=original_bounds.bounds)
+        download_egm_08_geoid(geoid_tif_path, bounds=temp_cop_dem_raster.bounds)
 
-    temp_cop_dem_raster = rio.open(required_cop_dem)
     temp_cop_dem_profile = temp_cop_dem_raster.profile
     temp_cop_dem_array = temp_cop_dem_raster.read(1)
     if len(downloaded_cop_files) > 1:
