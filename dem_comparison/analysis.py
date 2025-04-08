@@ -587,6 +587,7 @@ def area_of_interest(
     slope_maps: bool = True,
     return_outputs: bool = False,
     keep_temp_files: bool = False,
+    desired_resolution: float | tuple = 30.0,
 ) -> list[Path]:
     """Generates mosaics for a give area of interest
 
@@ -610,6 +611,8 @@ def area_of_interest(
         Only returns the output file paths, by default False
     keep_temp_files : bool, optional
         Keeping the intermediate files, by default False
+    desired_resolution: float | tuple, optional,
+        desired resolution for output mosaics, by default 30.0
 
     Returns
     -------
@@ -643,6 +646,9 @@ def area_of_interest(
 
     AOI_CRS = 4326
     REMA_CRS = 3031
+
+    if type(desired_resolution) is float:
+        desired_resolution = (desired_resolution, desired_resolution)
 
     if type(bounds_polygon) is str:
         aoi_poly = from_wkt(bounds_polygon)
@@ -679,20 +685,11 @@ def area_of_interest(
     )
 
     os.makedirs(f"{aoi_name}_Outputs/{aoi_name}_mosaics", exist_ok=True)
-    diff_arrays = [Path(p) for p in glob.glob(f"{aoi_name}_Outputs/dem_diff/*.tif")]
-    if diff_mos.exists():
-        os.remove(diff_mos)
 
     if src_crs == REMA_CRS:
         rema_bounds = aoi_poly.bounds
     else:
         rema_bounds = transform_polygon(aoi_poly, src_crs, REMA_CRS).bounds
-
-    simple_mosaic(diff_arrays, diff_mos, force_bounds=rema_bounds)
-
-    with rio.open(diff_mos, "r") as ds:
-        tr = ds.transform
-        rema_resolution = (tr.a, -tr.e)
 
     cop_dems = glob.glob(f"TEMP_{aoi_name}/**/TEMP_COP_ELLIPSOID.tif")
     rema_dems = glob.glob(f"TEMP_{aoi_name}/**/TEMP_REMA.tif")
@@ -724,12 +721,12 @@ def area_of_interest(
         rema_dems,
         rema_mosaic,
         force_bounds=rema_bounds,
-        resolution=rema_resolution,
+        resolution=desired_resolution,
     )
 
     reproject_match_tifs(
         rema_mosaic,
-        cop_mosaic,
+        repr_cop_mosaic,
         target_crs=REMA_CRS,
         verbose=True,
         convert_dB=False,
@@ -737,42 +734,37 @@ def area_of_interest(
         save_path_2=matched_cop_mosaic,
     )
 
+    with rio.open(matched_cop_mosaic, "r") as ds:
+        cop_data = ds.read(1)
+        cop_data_profile = ds.profile
+        if slope_maps:
+            cop_slope = gg.raster.calculate_slope(ds)
+
+    with rio.open(matched_rema_mosaic, "r") as ds:
+        rema_data = ds.read(1)
+        rema_data_profile = ds.profile
+        if slope_maps:
+            rema_slope = gg.raster.calculate_slope(ds)
+
+    diff_data = rema_data - cop_data
+    with rio.open(diff_mos, "w", **rema_data_profile) as ds:
+        ds.write(diff_data, 1)
+
+    if slope_maps:
+        with rio.open(matched_cop_slope, "w", **cop_data_profile) as ds:
+            ds.write(cop_slope, 1)
+
+        with rio.open(matched_rema_slope, "w", **rema_data_profile) as ds:
+            ds.write(rema_slope, 1)
+
+        slope_diff_array = rema_slope - cop_slope
+        with rio.open(slope_diff, "w", **rema_data_profile) as ds:
+            ds.write(slope_diff_array, 1)
+
     if not keep_temp_files:
         os.remove(cop_mosaic)
         os.remove(rema_mosaic)
-
-    if slope_maps:
-        cop_slope_file = Path(f"{aoi_name}_Outputs/cop_slope.tif")
-        rema_slope_file = Path(f"{aoi_name}_Outputs/rema_slope.tif")
-
-        with rio.open(repr_cop_mosaic, "r") as ds:
-            cop_slope = gg.raster.calculate_slope(ds)
-            cop_slope_profile = ds.profile
-
-        with rio.open(cop_slope_file, "w", **cop_slope_profile) as ds:
-            ds.write(cop_slope, 1)
-
-        with rio.open(rema_mosaic, "r") as ds:
-            rema_slope = gg.raster.calculate_slope(ds)
-            rema_slope_profile = ds.profile
-
-        with rio.open(rema_slope_file, "w", **rema_slope_profile) as ds:
-            ds.write(rema_slope, 1)
-
-        rema_slope_arr, cop_slope_arr = reproject_match_tifs(
-            rema_slope_file,
-            cop_slope_file,
-            target_crs=REMA_CRS,
-            verbose=True,
-            convert_dB=False,
-            save_path_1=matched_rema_slope,
-            save_path_2=matched_cop_slope,
-        )
-        slope_diff_array = rema_slope_arr - cop_slope_arr
-        slope_diff_array.rio.write_nodata(np.nan, inplace=True)
-        slope_diff_array.rio.to_raster(slope_diff)
-
-    if not keep_temp_files:
+        os.remove(repr_cop_mosaic)
         shutil.rmtree(Path(f"TEMP_{aoi_name}"))
         shutil.rmtree(Path(f"{aoi_name}_Outputs/dem_diff"))
         shutil.rmtree(Path(f"{aoi_name}_Outputs/dem_diff_metrics"))

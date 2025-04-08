@@ -485,13 +485,21 @@ def resample_dataset(
     return data, transform
 
 
-def get_cross_lines(poly: Polygon) -> tuple:
+def get_cross_lines(
+    poly: Polygon,
+    along_line_ratio: float = 0.5,
+    across_line_ratio: float = 0.5,
+) -> tuple:
     """Extracts the crossing line from the centre of the sides of a rectangle
 
     Parameters
     ----------
     poly : Polygon
         Shapley Polygon
+    along_line_ratio: float, optional
+        Location of the line along the bounding box on the shorter side, by default 0.5
+    along_line_ratio: float, optional
+        Location of the line across the bounding box on the longer side, by default 0.5
 
     Returns
     -------
@@ -499,11 +507,34 @@ def get_cross_lines(poly: Polygon) -> tuple:
         Tuple of LineStrings
     """
     points = [np.array(el) for el in list(zip(*poly.exterior.xy))[:-1]]
-    l1_points = [(points[0] + points[1]) / 2, (points[2] + points[3]) / 2]
+    l1_points = [(points[0] + points[1]) / 2, (points[3] + points[2]) / 2]
     l2_points = [(points[0] + points[3]) / 2, (points[1] + points[2]) / 2]
     l1 = LineString([Point(*l1_points[0]), Point(*l1_points[1])])
     l2 = LineString([Point(*l2_points[0]), Point(*l2_points[1])])
-    return (l1, l2) if l1.length > l2.length else (l2, l1)
+
+    l1_edges = [
+        LineString([Point(*points[0]), Point(*points[1])]),
+        LineString([Point(*points[3]), Point(*points[2])]),
+    ]
+    l2_edges = [
+        LineString([Point(*points[0]), Point(*points[3])]),
+        LineString([Point(*points[1]), Point(*points[2])]),
+    ]
+
+    along_edges = [l1_edges, l2_edges][np.argmax([l1.length, l2.length])]
+    across_edges = [l1_edges, l2_edges][np.argmin([l1.length, l2.length])]
+
+    along_points = [
+        along_edges[0].interpolate(along_edges[0].length * along_line_ratio),
+        along_edges[1].interpolate(along_edges[0].length * along_line_ratio),
+    ]
+    across_points = [
+        across_edges[0].interpolate(across_edges[0].length * across_line_ratio),
+        across_edges[1].interpolate(across_edges[0].length * across_line_ratio),
+    ]
+    along_line = LineString([along_points[0], along_points[1]])
+    across_line = LineString([across_points[0], across_points[1]])
+    return along_line, across_line
 
 
 def get_line_points(l: LineString, step_size: float = 30) -> tuple:
@@ -547,6 +578,8 @@ def get_cross_section_data(
     bounds_poly: Polygon,
     step_size: float = 30.0,
     average_window: int | None = None,
+    along_line_ratio: float = 0.5,
+    across_line_ratio: float = 0.5,
 ):
     """Finds values of a raster along the crossing lines at the centre of either side of a given bounding box.
 
@@ -558,6 +591,10 @@ def get_cross_section_data(
         Steps for calculating the values along the crossing lines, by default 30
     average_window:int | None, optional,
         If passed, a moving average of the data by this window size will be returned, by default None
+    along_line_ratio: float, optional
+        Location of the line along the bounding box on the shorter side, by default 0.5
+    along_line_ratio: float, optional
+        Location of the line across the bounding box on the longer side, by default 0.5
 
     Returns
     -------
@@ -566,7 +603,7 @@ def get_cross_section_data(
     with rio.open(raster, "r") as ds:
         transform = ds.transform
         img = ds.read(1)
-        l1, l2 = get_cross_lines(bounds_poly)
+        l1, l2 = get_cross_lines(bounds_poly, along_line_ratio, across_line_ratio)
 
         value_list = []
         dist_list = []

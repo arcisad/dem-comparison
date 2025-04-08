@@ -270,6 +270,8 @@ def plot_cross_sections(
     map_intensity_range: tuple = (-50, 50),
     map_color_steps: int = 15,
     aoi_name: str = "",
+    along_line_ratio: float = 0.5,
+    across_line_ratio: float = 0.5,
 ):
     """Plots the cross section changes of an area of interest
 
@@ -307,7 +309,10 @@ def plot_cross_sections(
         Number of color steps in the background map, by default 15
     aoi_name : str, optional
         Name of the area of interest to go into plot title, by default ""
-
+    along_line_ratio: float, optional
+        Location of the line along the bounding box on the shorter side, by default 0.5
+    along_line_ratio: float, optional
+        Location of the line across the bounding box on the longer side, by default 0.5
     Returns
     -------
     _type_
@@ -454,14 +459,23 @@ def plot_cross_sections(
         vals_list_windows = []
         for w in average_steps:
             vals_list_windows.append(
-                get_cross_section_data(r, bounds_poly, dist_step, w)
+                get_cross_section_data(
+                    r, bounds_poly, dist_step, w, along_line_ratio, across_line_ratio
+                )
             )
         vals_list_windows_per_raster.append(vals_list_windows)
 
     diff_vals_list_windows = []
     for w in average_steps:
         diff_vals_list_windows.append(
-            get_cross_section_data(diff_raster, bounds_poly, dist_step, w)
+            get_cross_section_data(
+                diff_raster,
+                bounds_poly,
+                dist_step,
+                w,
+                along_line_ratio,
+                across_line_ratio,
+            )
         )
 
     for j, vlw in enumerate(vals_list_windows_per_raster):
@@ -661,6 +675,8 @@ def plot_slope_vs_height(
     precision: int = 1,
     return_all_figs: bool = False,
     aoi_name: str = "",
+    along_line_ratio: float = 0.5,
+    across_line_ratio: float = 0.5,
 ) -> go.Figure | list[go.Figure]:
     """Plots height diff vs raster slopes
 
@@ -686,7 +702,10 @@ def plot_slope_vs_height(
         Returns list of figures instead of a single figure with subplots, by default False
     aoi_name : str, optional
         Name of the area of interest to go into plot title, by default ""
-
+    along_line_ratio: float, optional
+        Location of the line along the bounding box on the shorter side, by default 0.5
+    along_line_ratio: float, optional
+        Location of the line across the bounding box on the longer side, by default 0.5
     Returns
     -------
     go.Figure | list[go.Figure]
@@ -738,12 +757,29 @@ def plot_slope_vs_height(
             slope_df[["Slope", "Height_Diff"]].groupby("Slope").std().reset_index()
         )
     else:
-        height_diff_data = get_cross_section_data(height_diff_raster, bounds_poly)
-        slope_diff_data = get_cross_section_data(slope_diff_raster, bounds_poly)
+        height_diff_data = get_cross_section_data(
+            height_diff_raster,
+            bounds_poly,
+            along_line_ratio=along_line_ratio,
+            across_line_ratio=across_line_ratio,
+        )
+        slope_diff_data = get_cross_section_data(
+            slope_diff_raster,
+            bounds_poly,
+            along_line_ratio=along_line_ratio,
+            across_line_ratio=across_line_ratio,
+        )
 
         slope_data = []
         for sr in slope_rasters:
-            slope_data.append(get_cross_section_data(sr, bounds_poly))
+            slope_data.append(
+                get_cross_section_data(
+                    sr,
+                    bounds_poly,
+                    along_line_ratio=along_line_ratio,
+                    across_line_ratio=across_line_ratio,
+                )
+            )
 
         idx = np.logical_and(
             (slope_diff_clip_range[0] < slope_diff_data[1][0]),
