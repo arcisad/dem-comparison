@@ -52,6 +52,7 @@ def plot_metrics(
     data_bounds: tuple | list[tuple] | None = None,
     bins: int | list | None = None,
     percentiles_bracket: tuple | list[tuple] | None = None,
+    plot_resolution: tuple | None = None,
 ) -> go.Figure:
     """Plots the metrics for the DEMS as an interactive plot
 
@@ -72,6 +73,8 @@ def plot_metrics(
         Bins the metrics if passed, either the number of bins or list of list of left edges/list of bin numbers or a combination of both, by default None
     percentiles_bracket: tuple | None, optional
         Only uses the data within the given percentals bracket (lower, upper). If used with `data_bounds`, the percentiles are applied on filtered data by the bounds, by default None.
+    plot_resolution: tuple | None, optional,
+        Turns autosize off and force the resolution (h, w), by default None
 
     Returns
     -------
@@ -137,6 +140,7 @@ def plot_metrics(
     )
     if not polar:
         fig.update_layout(xaxis_title="Lat", yaxis_title="Lon")
+    min_lat = 90
     for i, metric in enumerate(metrics):
         if data_bounds is not None:
             if type(data_bounds) is list:
@@ -148,6 +152,8 @@ def plot_metrics(
                 x, y, metric = filter_data(metric, x, y, percentiles_bracket[i], True)
             else:
                 x, y, metric = filter_data(metric, x, y, percentiles_bracket, True)
+        if min(x) < min_lat:
+            min_lat = min(x)
         color = metric
         hover_text = metric
         if bins is not None:
@@ -263,7 +269,7 @@ def plot_metrics(
                 "ticktext": ["0", "45", "90", "135", "180", "-135", "-90", "-45"],
                 "tickmode": "array",
             },
-            "radialaxis": {"range": [90, 55]},
+            "radialaxis": {"range": [90, np.floor(min_lat).tolist() - 1]},
         }
         fig.update_layout(polar=polar_layout)
     if bins is not None:
@@ -283,9 +289,7 @@ def plot_metrics(
         else:
             ending = ", "
 
-    fig_title = (
-        "Elevation difference metrics.<br></br><span style='font-size: 12px;'>With "
-    )
+    fig_title = "Elevation difference metrics. <span style='font-size: 12px;'>With "
     if bins is not None:
         fig_title += (
             f"num bins for each metirc: {bins}{'.</span>' if alone_cond else ', '}"
@@ -297,6 +301,11 @@ def plot_metrics(
             f"percentile brackets for each metric: {percentiles_bracket}.</span>"
         )
     fig.update_layout(title=dict(text=fig_title))
+    if plot_resolution:
+        fig.update_layout(
+            height=plot_resolution[0],
+            width=plot_resolution[1],
+        )
 
     if save_path:
         fig.write_html(save_path)
