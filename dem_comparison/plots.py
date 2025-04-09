@@ -239,6 +239,9 @@ def plot_metrics(
             if np.max(metric) < max(available_bins):
                 available_bins = [be for be in available_bins if be < np.max(metric)]
             available_bins = available_bins + [np.max(metric).tolist()]
+            if np.min(metric) > min(available_bins):
+                available_bins = [be for be in available_bins if be > np.min(metric)]
+            available_bins = [np.min(metric).tolist()] + available_bins
             hover_text_hist = [
                 f"{np.round(be, 2)}-{np.round(be + bin_steps[k], 2)}"
                 for k, be in enumerate(np.array(bin_edges).tolist())
