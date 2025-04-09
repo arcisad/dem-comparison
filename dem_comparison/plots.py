@@ -229,6 +229,10 @@ def plot_metrics(
                 col=2,
             )
         else:
+            available_bins = np.array(bin_edges).tolist()
+            if np.max(metric) < max(available_bins):
+                available_bins = [be for be in available_bins if be < np.max(metric)]
+            available_bins = available_bins + [np.max(metric).tolist()]
             hover_text_hist = [
                 f"{np.round(be, 2)}-{np.round(be + bin_steps[k], 2)}"
                 for k, be in enumerate(np.array(bin_edges).tolist())
@@ -236,9 +240,7 @@ def plot_metrics(
             fig.add_trace(
                 go.Bar(
                     x=bin_edges,
-                    y=np.histogram(
-                        metric, np.array(bin_edges).tolist() + [np.max(metric).tolist()]
-                    )[0],
+                    y=np.histogram(metric, available_bins)[0],
                     visible=True if i == 0 else False,
                     showlegend=False,
                     name=labels[i],
