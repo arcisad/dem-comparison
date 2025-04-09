@@ -47,10 +47,11 @@ def rescale_intensities(img: np.ndarray, new_range: tuple = (0, 1)) -> np.ndarra
 def plot_metrics(
     metric_files: list[Path],
     is_error: bool = True,
-    polar: bool = False,
+    polar: bool = True,
     save_path: Path | None = None,
-    data_bounds: tuple | list[tuple] | None = (-50, 50),
-    bins: int | list | None = 15,
+    data_bounds: tuple | list[tuple] | None = None,
+    bins: int | list | None = None,
+    percentiles_bracket: tuple | list[tuple] | None = None,
 ) -> go.Figure:
     """Plots the metrics for the DEMS as an interactive plot
 
@@ -65,21 +66,29 @@ def plot_metrics(
     save_path: Path | None, optional,
         Path to save the html plot, by default None
     data_bounds: tuple | list[tuple] | None, optional
-        Filters out the data beyond the given bounds (left and right inclusive), by default (-50, 50),
+        Filters out the data beyond the given bounds (left and right inclusive), by default None,
         If list of bounds provided the number of bounds should be the same as the number of metrics.
     bins: int | list | None, optional
-        Bins the metrics if passed, either the number of bins or list of list of left edges/list of bin numbers or a combination of both, by default 15
+        Bins the metrics if passed, either the number of bins or list of list of left edges/list of bin numbers or a combination of both, by default None
+    percentiles_bracket: tuple | None, optional
+        Only uses the data within the given percentals bracket (lower, upper). If used with `data_bounds`, the percentiles are applied on filtered data by the bounds, by default None.
+
     Returns
     -------
     go.Figure
         Plotly figure
     """
 
-    def filter_data(met, db):
-        validity_list = [True if db[0] <= el <= db[1] else False for el in met]
+    def filter_data(met, data_x, data_y, db, is_percentile=False):
+        if is_percentile:
+            pl = np.percentile(met, db[0])
+            pu = np.percentile(met, db[1])
+            validity_list = [True if pl < el < pu else False for el in met]
+        else:
+            validity_list = [True if db[0] <= el <= db[1] else False for el in met]
         new_metric = [el for j, el in enumerate(met) if validity_list[j]]
-        new_x = [el for j, el in enumerate(x) if validity_list[j]]
-        new_y = [el for j, el in enumerate(y) if validity_list[j]]
+        new_x = [el for j, el in enumerate(data_x) if validity_list[j]]
+        new_y = [el for j, el in enumerate(data_y) if validity_list[j]]
         return new_x, new_y, new_metric
 
     labels = ["ME" if is_error else "MEAN", "STD", "MSE", "NMAD"]
@@ -89,6 +98,11 @@ def plot_metrics(
         assert len(data_bounds) == len(
             metrics
         ), "If used as a list, the number of data bounds should be the same as the number of metrics."
+
+    if type(percentiles_bracket) is list:
+        assert len(percentiles_bracket) == len(
+            metrics
+        ), "If used as a list, the number of percentiles brackets should be the same as the number of metrics."
 
     if type(bins) is list:
         assert len(bins) == len(
@@ -126,9 +140,14 @@ def plot_metrics(
     for i, metric in enumerate(metrics):
         if data_bounds is not None:
             if type(data_bounds) is list:
-                x, y, metric = filter_data(metric, data_bounds[i])
+                x, y, metric = filter_data(metric, x, y, data_bounds[i])
             else:
-                x, y, metric = filter_data(metric, data_bounds)
+                x, y, metric = filter_data(metric, x, y, data_bounds)
+        if percentiles_bracket is not None:
+            if type(percentiles_bracket) is list:
+                x, y, metric = filter_data(metric, x, y, percentiles_bracket[i], True)
+            else:
+                x, y, metric = filter_data(metric, x, y, percentiles_bracket, True)
         color = metric
         hover_text = metric
         if bins is not None:
@@ -245,7 +264,37 @@ def plot_metrics(
             "radialaxis": {"range": [90, 55]},
         }
         fig.update_layout(polar=polar_layout)
-    fig.update_layout(bargap=0)
+    if bins is not None:
+        fig.update_layout(bargap=0)
+
+    titles_list = [bins, data_bounds, percentiles_bracket]
+    alone_cond = titles_list.count(None) == 2
+
+    if data_bounds is not None:
+        if alone_cond:
+            ending = ".</span>"
+        elif None in titles_list:
+            if titles_list.index(None) == 0:
+                ending = ", "
+            elif titles_list.index(None) == 2:
+                ending = ".</span>"
+        else:
+            ending = ", "
+
+    fig_title = (
+        "Elevation difference metrics.<br></br><span style='font-size: 12px;'>With "
+    )
+    if bins is not None:
+        fig_title += (
+            f"num bins for each metirc: {bins}{'.</span>' if alone_cond else ', '}"
+        )
+    if data_bounds is not None:
+        fig_title += f"thresholds for each metric: {data_bounds}{ending}"
+    if percentiles_bracket is not None:
+        fig_title += (
+            f"percentile brackets for each metric: {percentiles_bracket}.</span>"
+        )
+    fig.update_layout(title=dict(text=fig_title))
 
     if save_path:
         fig.write_html(save_path)
