@@ -526,11 +526,11 @@ def get_cross_lines(
 
     along_points = [
         along_edges[0].interpolate(along_edges[0].length * along_line_ratio),
-        along_edges[1].interpolate(along_edges[0].length * along_line_ratio),
+        along_edges[1].interpolate(along_edges[1].length * along_line_ratio),
     ]
     across_points = [
         across_edges[0].interpolate(across_edges[0].length * across_line_ratio),
-        across_edges[1].interpolate(across_edges[0].length * across_line_ratio),
+        across_edges[1].interpolate(across_edges[1].length * across_line_ratio),
     ]
     along_line = LineString([along_points[0], along_points[1]])
     across_line = LineString([across_points[0], across_points[1]])
