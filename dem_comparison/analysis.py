@@ -20,6 +20,7 @@ import glob
 from shapely import from_wkt
 import gemgis as gg
 from rasterio.enums import Resampling
+import yaml
 
 
 def analyse_difference(
@@ -588,6 +589,8 @@ def area_of_interest(
     return_outputs: bool = False,
     keep_temp_files: bool = False,
     desired_resolution: float | tuple = 30.0,
+    s3_upload_dir: str | None = None,
+    credentials_file: Path | None = None,
 ) -> list[Path]:
     """Generates mosaics for a give area of interest
 
@@ -613,6 +616,12 @@ def area_of_interest(
         Keeping the intermediate files, by default False
     desired_resolution: float | tuple, optional,
         desired resolution for output mosaics, by default 30.0
+    s3_upload_dir: str | None, optional
+        If provided, the ouputs will be uploaded to S3 dir,
+        pass `auto` to infer the S3 Dir from `aoi_name`, which puts the files inside a subfolder in `dem_comparison_results` directory,
+        Bucket is hardcoded to `deant-data-public-dev` and the region is `ap-souteast-2`, by default None,
+    credentials_file: Path | None, optional
+        IF uploading to S3, a yaml file containing AWS credentials should be provided, by default None
 
     Returns
     -------
@@ -769,5 +778,27 @@ def area_of_interest(
         shutil.rmtree(Path(f"{aoi_name}_Outputs/dem_diff"))
         shutil.rmtree(Path(f"{aoi_name}_Outputs/dem_diff_metrics"))
         shutil.rmtree(Path(f"{aoi_name}_Outputs/original_rema_metrics"))
+
+    if s3_upload_dir is not None:
+        with open(credentials_file) as f:
+            cred_dict = yaml.safe_load(f)
+        AWS_ACCESS_KEY_ID = cred_dict["AWS_ACCESS_KEY_ID"]
+        AWS_SECRET_ACCESS_KEY = cred_dict["AWS_SECRET_ACCESS_KEY"]
+        AWS_DEFAULT_REGION = cred_dict["AWS_DEFAULT_REGION"]
+
+        session = aioboto3.Session(
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            region_name=AWS_DEFAULT_REGION,
+        )
+        if s3_upload_dir == "auto":
+            s3_dir = Path(f"dem_comparison_results/{aoi_name}_Outputs")
+        local_dir = Path(f"{aoi_name}_Outputs")
+        bulk_upload_files(
+            s3_dir,
+            local_dir,
+            session=session,
+            num_cpus=4,
+        )
 
     return outputs

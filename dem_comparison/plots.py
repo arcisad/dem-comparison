@@ -326,6 +326,7 @@ def plot_cross_sections(
     raster_names: list[str] | None = None,
     raster_colours: list[str] | None = None,
     axes_label: str = "Elevation(m)",
+    diff_unit: str = "m",
     save_path: Path | None = None,
     diff_opacity: float = 1.0,
     full_map: Path = Path("resources/mosaic_downsampled_3200m.tif"),
@@ -356,8 +357,10 @@ def plot_cross_sections(
         Name of the rasters in the plot, by default None
     raster_colours : list[str] | None, optional
         Color of the rasters in the plot, by default None
-    daxes_label: str, optional
+    axes_label: str, optional
         Label for the plot axes, by default "Elevation(m)"
+    diff_unit: str, optional
+        Unit string to go on absolute difference axis, by defaul "m"
     save_path : Path | None, optional
         Path to sabve the outputs, by default None
     diff_opacity : float, optional
@@ -684,7 +687,7 @@ def plot_cross_sections(
         col=2,
     )
     fig.update_layout(showlegend=True)
-    fig.update_xaxes(title_text="Distance(m)", row=2, col=1)
+    fig.update_xaxes(title_text="Distance(m)", row=3, col=1)
     fig.update_yaxes(
         title_text=axes_label,
         row=1,
@@ -699,13 +702,13 @@ def plot_cross_sections(
     )
     if diff_opacity != 0.0:
         fig.update_yaxes(
-            title_text="ABS Difference(m)",
+            title_text=f"ABS Difference({diff_unit})",
             row=1,
             col=1,
             secondary_y=True,
         )
         fig.update_yaxes(
-            title_text="ABS Difference(m)",
+            title_text=f"ABS Difference({diff_unit})",
             row=3,
             col=1,
             secondary_y=True,
