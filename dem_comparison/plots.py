@@ -19,6 +19,7 @@ from shapely import Polygon
 import shutil
 import cv2 as cv
 import pandas as pd
+from scipy import stats
 
 PIL.Image.MAX_IMAGE_PIXELS = 933120000
 
@@ -337,6 +338,7 @@ def plot_cross_sections(
     along_line_ratio: float = 0.5,
     across_line_ratio: float = 0.5,
     hillshade_index: int | None = None,
+    plot_resolution: tuple | None = None,
 ):
     """Plots the cross section changes of an area of interest
 
@@ -382,6 +384,8 @@ def plot_cross_sections(
         Location of the line across the bounding box on the longer side, by default 0.5
     hillshade_index: int | None, optional
         If provided, the raster with this index from the input list will be used for the map with the diff map overlaid on it, by default None
+    plot_resolution: tuple | None, optional,
+        Turns autosize off and force the resolution (h, w), by default None
     Returns
     -------
     _type_
@@ -483,7 +487,7 @@ def plot_cross_sections(
                 intensity_range=map_intensity_range,
                 color_steps=map_color_steps,
             )
-            img[nan_mask] = 255
+            img[nan_mask] = stats.mode(img[~nan_mask]).mode
         if hillshade_index is not None:
             img = cv.addWeighted(hillshade_img, 0.5, img, 0.5, 0.0)
         for i in range(3):
@@ -743,6 +747,11 @@ def plot_cross_sections(
     fig.update_layout(
         title=dict(text=f"Cross section plot{aoi_str}, resolution: {dist_step}m")
     )
+    if plot_resolution:
+        fig.update_layout(
+            height=plot_resolution[0],
+            width=plot_resolution[1],
+        )
 
     shutil.rmtree(temp_path)
 
