@@ -336,6 +336,7 @@ def plot_cross_sections(
     aoi_name: str = "",
     along_line_ratio: float = 0.5,
     across_line_ratio: float = 0.5,
+    hillshade_index: int | None = None,
 ):
     """Plots the cross section changes of an area of interest
 
@@ -379,6 +380,8 @@ def plot_cross_sections(
         Location of the line along the bounding box on the shorter side, by default 0.5
     along_line_ratio: float, optional
         Location of the line across the bounding box on the longer side, by default 0.5
+    hillshade_index: int | None, optional
+        If provided, the raster with this index from the input list will be used for the map with the diff map overlaid on it, by default None
     Returns
     -------
     _type_
@@ -386,6 +389,9 @@ def plot_cross_sections(
     """
     if type(raster) is not list:
         raster = [raster]
+
+    if hillshade_index is not None:
+        assert hillshade_index < len(raster), "Wrong hillshade index"
 
     if raster_names is None:
         raster_names = [f"Raster_{i}" for i in range(len(raster))]
@@ -403,6 +409,13 @@ def plot_cross_sections(
     with rio.open(plot_image) as ds:
         full_map_width = int(ds.profile["width"] / 3.3)
         full_map_height = int(ds.profile["height"] / 3.3)
+
+    if hillshade_index is not None:
+        with rio.open(raster[hillshade_index]) as ds:
+            hillshade_img = hillshade(ds.read(1), skip_negative=False)
+            hillshade_img[np.isnan(hillshade_img)] = 0.0
+            hillshade_img = hillshade_img.astype("uint8")
+            hillshade_img = np.dstack([hillshade_img] * 3)
 
     with rio.open(full_map, "r") as ds:
         full_map_transform = ds.transform
@@ -471,6 +484,8 @@ def plot_cross_sections(
                 color_steps=map_color_steps,
             )
             img[nan_mask] = 255
+        if hillshade_index is not None:
+            img = cv.addWeighted(hillshade_img, 0.5, img, 0.5, 0.0)
         for i in range(3):
             img[0 : full_map_shape[1], 0 : full_map_shape[0]][
                 ~np.isnan(full_map_img)
@@ -687,7 +702,15 @@ def plot_cross_sections(
         col=2,
     )
     fig.update_layout(showlegend=True)
-    fig.update_xaxes(title_text="Distance(m)", row=3, col=1)
+    if diff_opacity != 0.0:
+        fig.update_xaxes(title_text="Distance(m)", row=3, col=1)
+    else:
+        fig.update_xaxes(title_text="Distance(m) (Blue line)", row=1, col=1)
+        fig.update_xaxes(title_text="Distance(m) (Red Line)", row=3, col=1)
+    if hillshade_index is not None:
+        fig.update_xaxes(
+            title_text=f"Hillshade map: {raster_names[hillshade_index]}", row=2, col=2
+        )
     fig.update_yaxes(
         title_text=axes_label,
         row=1,
