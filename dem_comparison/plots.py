@@ -413,20 +413,22 @@ def plot_cross_sections(
     if not temp_path.exists():
         temp_path.mkdir(parents=True, exist_ok=True)
 
-    with rio.open(plot_image) as ds:
-        full_map_width = int(ds.profile["width"] / 3.3)
-        full_map_height = int(ds.profile["height"] / 3.3)
-
     if hillshade_index is not None:
         with rio.open(raster[hillshade_index]) as ds:
-            hillshade_img = hillshade(ds.read(1), skip_negative=False)
-            hillshade_img[np.isnan(hillshade_img)] = 0.0
+            img = ds.read(1)
+            nan_mask = np.isnan(img)
+            img[nan_mask] = stats.mode(img[~nan_mask]).mode
+            hillshade_img = hillshade(img, skip_negative=False)
             hillshade_img = hillshade_img.astype("uint8")
             hillshade_img = np.dstack([hillshade_img] * 3)
 
     with rio.open(full_map, "r") as ds:
         full_map_transform = ds.transform
         full_map_img = ds.read(1)
+        full_map_img = rescale_intensities(full_map_img)
+        full_map_img[np.isnan(full_map_img)] = 1.0
+        full_map_img = (full_map_img * 255).astype("uint8")
+        full_map_img[full_map_img < 255] = 64
         plot_bounds = resize_bounds(BoundingBox(*bounds_poly.bounds), 2).bounds
         minx = (
             int(
@@ -461,33 +463,17 @@ def plot_cross_sections(
             full_map_img_rect,
             (minx, miny),
             (maxx, maxy),
-            float(full_map_img[~np.isnan(full_map_img)].max()),
+            255,
             -1,
         )
-        mask = np.zeros_like(full_map_img_rect)
-        mask = cv.rectangle(
-            mask,
+        full_map_img = cv.rectangle(
+            full_map_img,
             (minx, miny),
             (maxx, maxy),
-            1.0,
+            0,
             -1,
         )
-        full_map_shape = (
-            full_map_width,
-            full_map_height,
-        )
-        full_map_img = cv.resize(
-            full_map_img, dsize=full_map_shape, interpolation=cv.INTER_LINEAR
-        )
-        full_map_img_rect = cv.resize(
-            full_map_img_rect, dsize=full_map_shape, interpolation=cv.INTER_LINEAR
-        )
-        mask = cv.resize(mask, dsize=full_map_shape, interpolation=cv.INTER_LINEAR)
         full_map_img = np.dstack([full_map_img_rect, full_map_img, full_map_img_rect])
-        full_map_img = rescale_intensities(full_map_img)
-        full_map_img[mask > 0, 0] = 255.0
-        full_map_img[mask > 0, 1] = 0.0
-        full_map_img[mask > 0, 2] = 255.0
 
     with rio.open(plot_image) as ds:
         transform = ds.transform
@@ -498,6 +484,7 @@ def plot_cross_sections(
             intensity_range=map_intensity_range,
             color_steps=map_color_steps,
         )
+        img[nan_mask] = stats.mode(img[~nan_mask]).mode
         colorbar_colors = img[~nan_mask]
         unique_colors = np.unique(colorbar_colors, axis=0)[::-1]
         colorbar_colors = [f"rgb{tuple(cc.tolist())}" for cc in unique_colors]
@@ -508,11 +495,6 @@ def plot_cross_sections(
         binned_data = np.unique(binned_data)
         if hillshade_index is not None:
             img = cv.addWeighted(hillshade_img, 0.5, img, 0.5, 0.0)
-        for i in range(3):
-            img[0 : full_map_shape[1], 0 : full_map_shape[0]][
-                ~np.isnan(full_map_img)
-            ] = (full_map_img[~np.isnan(full_map_img)]).astype("uint8")
-        img[nan_mask] = stats.mode(img[~nan_mask]).mode
         imh, imw, _ = img.shape
         plt.imsave(temp_path / "temp_img.jpg", img)
 
@@ -534,9 +516,9 @@ def plot_cross_sections(
                     + [
                         el
                         for el in [l == av_step_names[i] for l in av_step_names]
-                        for _ in range(2 if diff_opacity == 0 else 4)
+                        for _ in range(2 if diff_opacity == 0.0 else 4)
                     ]
-                    + [True]
+                    + [True, True, True]
                 },
             ],
         }
@@ -553,9 +535,15 @@ def plot_cross_sections(
         rows=4,
         cols=2,
         specs=[
-            [{"type": "xy", "secondary_y": True, "rowspan": 2}, None],
-            [None, {"type": "xy", "rowspan": 2}],
-            [{"type": "xy", "secondary_y": True, "rowspan": 2}, None],
+            [
+                {"type": "xy", "secondary_y": True, "rowspan": 2},
+                {"type": "xy", "rowspan": 2},
+            ],
+            [None, None],
+            [
+                {"type": "xy", "secondary_y": True, "rowspan": 2},
+                {"type": "xy", "rowspan": 2},
+            ],
             [None, None],
         ],
         column_widths=[1 - spacing_factor, spacing_factor],
@@ -586,6 +574,9 @@ def plot_cross_sections(
             )
         )
 
+    no_diff_styles = ["dashdot", "solid"]
+    if len(raster) > 2:
+        no_diff_styles = no_diff_styles * len(raster) // 2
     for j, vlw in enumerate(vals_list_windows_per_raster):
         for i, vals_list in enumerate(vlw):
             d, v, _, _ = vals_list
@@ -595,7 +586,10 @@ def plot_cross_sections(
                     y=v[0],
                     mode="lines",
                     marker=dict(
-                        color=raster_colours[j],
+                        color="blue" if diff_opacity == 0.0 else raster_colours[j],
+                    ),
+                    line=dict(
+                        dash=no_diff_styles[j] if diff_opacity == 0.0 else None,
                     ),
                     name=raster_names[j],
                     visible=True if i == 0 else False,
@@ -610,11 +604,14 @@ def plot_cross_sections(
                     y=v[1],
                     mode="lines",
                     marker=dict(
-                        color=raster_colours[j],
+                        color="red" if diff_opacity == 0.0 else raster_colours[j],
+                    ),
+                    line=dict(
+                        dash=no_diff_styles[j] if diff_opacity == 0.0 else None,
                     ),
                     name=raster_names[j],
                     visible=True if i == 0 else False,
-                    showlegend=False,
+                    showlegend=True if diff_opacity == 0.0 else False,
                 ),
                 row=3,
                 col=1,
@@ -669,7 +666,7 @@ def plot_cross_sections(
                 text=[f"{v[0][i]}" for i in range(len(v[0]))],
                 visible=True if i == 0 else False,
             ),
-            row=2,
+            row=3,
             col=2,
         )
         fig.add_trace(
@@ -685,7 +682,7 @@ def plot_cross_sections(
                 text=[f"{v[1][i]}" for i in range(len(v[1]))],
                 visible=True if i == 0 else False,
             ),
-            row=2,
+            row=3,
             col=2,
         )
 
@@ -704,7 +701,7 @@ def plot_cross_sections(
             visible=True,
             hoverinfo="none",
         ),
-        row=2,
+        row=3,
         col=2,
     )
 
@@ -723,7 +720,20 @@ def plot_cross_sections(
             visible=True,
             layer="below",
         ),
-        row=2,
+        row=3,
+        col=2,
+    )
+    fig.add_trace(
+        go.Image(
+            z=full_map_img,
+            x0=0,
+            dx=1,
+            dy=1,
+            visible=True,
+            name="",
+            hoverinfo="none",
+        ),
+        row=1,
         col=2,
     )
     fig.add_trace(
@@ -739,6 +749,7 @@ def plot_cross_sections(
                 cmax=binned_data.max(),
                 colorbar=dict(
                     x=0.95,
+                    y=0.25,
                     thickness=15,
                     tickvals=[
                         binned_data.min(),
@@ -751,29 +762,28 @@ def plot_cross_sections(
                         "{:.2f}".format(colorbar_data.max()),
                     ],
                     outlinewidth=0,
-                    len=(
-                        int(np.round(imh * (plot_resolution[0] / plot_resolution[1])))
-                        if plot_resolution is not None
-                        else imh
-                    ),
-                    lenmode="pixels",
+                    len=0.5,
                 ),
             ),
             showlegend=False,
             visible=True,
+            hoverinfo="none",
+            name="",
         ),
-        row=2,
+        row=3,
         col=2,
     )
     fig.update_layout(showlegend=True)
     if diff_opacity != 0.0:
         fig.update_xaxes(title_text="Distance(m)", row=3, col=1)
     else:
-        fig.update_xaxes(title_text="Distance(m) (Blue line)", row=1, col=1)
-        fig.update_xaxes(title_text="Distance(m) (Red Line)", row=3, col=1)
+        fig.update_xaxes(title_text="Distance(m)", row=1, col=1)
+        fig.update_xaxes(title_text="Distance(m)", row=3, col=1)
     if hillshade_index is not None:
         fig.update_xaxes(
-            title_text=f"Hillshade map: {raster_names[hillshade_index]}", row=2, col=2
+            title_text=f"Hillshade map: {raster_names[hillshade_index]}<br></br>Colors are Differences in {axes_label} (Colorbar)",
+            row=3,
+            col=2,
         )
     fig.update_yaxes(
         title_text=axes_label,
@@ -800,8 +810,10 @@ def plot_cross_sections(
             col=1,
             secondary_y=True,
         )
-    fig.update_xaxes(showgrid=False, showticklabels=False, row=2, col=2)
-    fig.update_yaxes(showgrid=False, showticklabels=False, row=2, col=2)
+    fig.update_xaxes(showgrid=False, showticklabels=False, row=3, col=2)
+    fig.update_yaxes(showgrid=False, showticklabels=False, row=3, col=2)
+    fig.update_xaxes(showgrid=False, showticklabels=False, row=1, col=2)
+    fig.update_yaxes(showgrid=False, showticklabels=False, row=1, col=2)
     fig.update_layout(hovermode="x unified")
     aoi_str = f" for {aoi_name}" if aoi_name != "" else ""
     fig.update_layout(
