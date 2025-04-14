@@ -686,7 +686,7 @@ def bin_metrics(
     metric: list | np.ndarray,
     bins: int | list = 15,
     bounds: tuple | None = None,
-) -> np.ndarray:
+) -> tuple:
     """Creates bins of metrics values
 
     Parameters
@@ -699,7 +699,7 @@ def bin_metrics(
 
     Returns
     -------
-    new metric, bin left edges and bin interval
+    new metric, bin left edges, bin steps and bin interval,
     """
 
     if type(metric) is list:
@@ -722,7 +722,7 @@ def bin_metrics(
     else:
         step_val = (bounds[1] - bounds[0]) / bins
         left_edges = np.arange(bounds[0], bounds[1], step_val)
-        step_vals = [step_val.tolist()] * len(left_edges)
+        step_vals = [np.array(step_val).tolist()] * len(left_edges)
 
     new_metric = np.zeros_like(metric).astype("float")
     diff_list = np.zeros_like(metric).astype("float")

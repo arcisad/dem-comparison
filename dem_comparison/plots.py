@@ -331,7 +331,6 @@ def plot_cross_sections(
     save_path: Path | None = None,
     diff_opacity: float = 1.0,
     full_map: Path = Path("resources/mosaic_downsampled_3200m.tif"),
-    hillshade_map: bool = False,
     map_intensity_range: tuple = (-50, 50),
     map_color_steps: int = 15,
     aoi_name: str = "",
@@ -339,6 +338,8 @@ def plot_cross_sections(
     across_line_ratio: float = 0.5,
     hillshade_index: int | None = None,
     plot_resolution: tuple | None = None,
+    dynamic_spacing: bool = True,
+    aoi_buffer: int = 0,
 ):
     """Plots the cross section changes of an area of interest
 
@@ -370,8 +371,6 @@ def plot_cross_sections(
         Opacity of the difference plot, by default 1.0
     full_map: Path, optional
         Path to the full map of the region, by default Path("resources/mosaic_downsampled_3200m.tif"),
-    hillshade_map : bool,
-        Draws the hillshade of the map, by default False
     map_intensity_range : tuple, optional
         Intensity clipping range in the background map, by default (-50, 50)
     map_color_steps : int, optional
@@ -386,6 +385,10 @@ def plot_cross_sections(
         If provided, the raster with this index from the input list will be used for the map with the diff map overlaid on it, by default None
     plot_resolution: tuple | None, optional,
         Turns autosize off and force the resolution (h, w), by default None
+    dynamic_spacing: bool, optional
+        Dynamic spacing between subplots, by default True
+    aoi_buffer: float, optional
+        Buffering the aoi locaiton on the full map in pixels, by default 0
     Returns
     -------
     _type_
@@ -425,21 +428,33 @@ def plot_cross_sections(
         full_map_transform = ds.transform
         full_map_img = ds.read(1)
         plot_bounds = resize_bounds(BoundingBox(*bounds_poly.bounds), 2).bounds
-        minx = int(
-            np.floor((plot_bounds[0] - full_map_transform.c) / full_map_transform.a)
-        )
-        miny = int(
-            np.floor(
-                (full_map_transform.f - plot_bounds[1]) / abs(full_map_transform.e)
+        minx = (
+            int(
+                np.floor((plot_bounds[0] - full_map_transform.c) / full_map_transform.a)
             )
+            - aoi_buffer
         )
-        maxx = int(
-            np.floor((plot_bounds[2] - full_map_transform.c) / full_map_transform.a)
-        )
-        maxy = int(
-            np.floor(
-                (full_map_transform.f - plot_bounds[3]) / abs(full_map_transform.e)
+        miny = (
+            int(
+                np.floor(
+                    (full_map_transform.f - plot_bounds[1]) / abs(full_map_transform.e)
+                )
             )
+            - aoi_buffer
+        )
+        maxx = (
+            int(
+                np.floor((plot_bounds[2] - full_map_transform.c) / full_map_transform.a)
+            )
+            + aoi_buffer
+        )
+        maxy = (
+            int(
+                np.floor(
+                    (full_map_transform.f - plot_bounds[3]) / abs(full_map_transform.e)
+                )
+            )
+            + aoi_buffer
         )
         full_map_img_rect = full_map_img.copy()
         full_map_img_rect = cv.rectangle(
@@ -476,24 +491,28 @@ def plot_cross_sections(
 
     with rio.open(plot_image) as ds:
         transform = ds.transform
-        if hillshade_map:
-            img = np.dstack([hillshade(ds.read(1))] * 3)
-            img[np.isnan(img)] = 255
-            img = img.astype("uint8")
-        else:
-            img, nan_mask = enhance_image(
-                ds.read(1),
-                return_nan_mask=True,
-                intensity_range=map_intensity_range,
-                color_steps=map_color_steps,
-            )
-            img[nan_mask] = stats.mode(img[~nan_mask]).mode
+        plot_image_data = ds.read(1)
+        img, nan_mask = enhance_image(
+            plot_image_data,
+            return_nan_mask=True,
+            intensity_range=map_intensity_range,
+            color_steps=map_color_steps,
+        )
+        colorbar_colors = img[~nan_mask]
+        unique_colors = np.unique(colorbar_colors, axis=0)[::-1]
+        colorbar_colors = [f"rgb{tuple(cc.tolist())}" for cc in unique_colors]
+        colorbar_data = plot_image_data[~np.isnan(plot_image_data)]
+        binned_data, _, _, _ = bin_metrics(
+            colorbar_data, len(unique_colors), map_intensity_range
+        )
+        binned_data = np.unique(binned_data)
         if hillshade_index is not None:
             img = cv.addWeighted(hillshade_img, 0.5, img, 0.5, 0.0)
         for i in range(3):
             img[0 : full_map_shape[1], 0 : full_map_shape[0]][
                 ~np.isnan(full_map_img)
             ] = (full_map_img[~np.isnan(full_map_img)]).astype("uint8")
+        img[nan_mask] = stats.mode(img[~nan_mask]).mode
         imh, imw, _ = img.shape
         plt.imsave(temp_path / "temp_img.jpg", img)
 
@@ -526,6 +545,10 @@ def plot_cross_sections(
 
     updatemenu = [{"buttons": buttons, "direction": "down", "showactive": True}]
 
+    spacing_factor = 0.4 * imw / imh
+    if not dynamic_spacing:
+        spacing_factor = 0.4
+
     fig = make_subplots(
         rows=4,
         cols=2,
@@ -535,7 +558,7 @@ def plot_cross_sections(
             [{"type": "xy", "secondary_y": True, "rowspan": 2}, None],
             [None, None],
         ],
-        column_widths=[0.6, 0.4],
+        column_widths=[1 - spacing_factor, spacing_factor],
         horizontal_spacing=0.1,
     )
 
@@ -612,7 +635,6 @@ def plot_cross_sections(
                     name="Absolute diff along",
                     visible=True if i == 0 else False,
                     opacity=diff_opacity,
-                    # showlegend=False,
                 ),
                 row=1,
                 col=1,
@@ -629,7 +651,6 @@ def plot_cross_sections(
                     name="Absolute diff across",
                     visible=True if i == 0 else False,
                     opacity=diff_opacity,
-                    # showlegend=False,
                 ),
                 row=3,
                 col=1,
@@ -643,9 +664,9 @@ def plot_cross_sections(
                 marker=dict(
                     color="blue",
                 ),
-                name="Absolute diff (map)",
+                name="Map diff (Blue line)",
                 hovertemplate="%{text}",
-                text=[f"{abs(v[0][i])}" for i in range(len(v[0]))],
+                text=[f"{v[0][i]}" for i in range(len(v[0]))],
                 visible=True if i == 0 else False,
             ),
             row=2,
@@ -659,9 +680,9 @@ def plot_cross_sections(
                 marker=dict(
                     color="red",
                 ),
-                name="Absolute diff (map)",
+                name="Map diff (Red line)",
                 hovertemplate="%{text}",
-                text=[f"{abs(v[1][i])}" for i in range(len(v[1]))],
+                text=[f"{v[1][i]}" for i in range(len(v[1]))],
                 visible=True if i == 0 else False,
             ),
             row=2,
@@ -701,6 +722,45 @@ def plot_cross_sections(
             opacity=0.65,
             visible=True,
             layer="below",
+        ),
+        row=2,
+        col=2,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(imw // 2, imw // 2 + len(colorbar_colors))),
+            y=list(range(imh // 2, imh // 2 + len(colorbar_colors))),
+            mode="markers",
+            marker=dict(
+                opacity=0.0,
+                colorscale=colorbar_colors,
+                showscale=True,
+                cmin=binned_data.min(),
+                cmax=binned_data.max(),
+                colorbar=dict(
+                    x=0.95,
+                    thickness=15,
+                    tickvals=[
+                        binned_data.min(),
+                        binned_data.mean(),
+                        binned_data.max(),
+                    ],
+                    ticktext=[
+                        "{:.2f}".format(colorbar_data.min()),
+                        "{:.2f}".format(colorbar_data.mean()),
+                        "{:.2f}".format(colorbar_data.max()),
+                    ],
+                    outlinewidth=0,
+                    len=(
+                        int(np.round(imh * (plot_resolution[0] / plot_resolution[1])))
+                        if plot_resolution is not None
+                        else imh
+                    ),
+                    lenmode="pixels",
+                ),
+            ),
+            showlegend=False,
+            visible=True,
         ),
         row=2,
         col=2,
@@ -775,6 +835,7 @@ def plot_slope_vs_height(
     aoi_name: str = "",
     along_line_ratio: float = 0.5,
     across_line_ratio: float = 0.5,
+    plot_trendline: bool = False,
 ) -> go.Figure | list[go.Figure]:
     """Plots height diff vs raster slopes
 
@@ -804,6 +865,8 @@ def plot_slope_vs_height(
         Location of the line along the bounding box on the shorter side, by default 0.5
     along_line_ratio: float, optional
         Location of the line across the bounding box on the longer side, by default 0.5
+    plot_trendline: bool, optional
+        Plots the trendlines using Ordinary Least Squares, by default False
     Returns
     -------
     go.Figure | list[go.Figure]
@@ -943,8 +1006,14 @@ def plot_slope_vs_height(
             .iloc[::-1]
         )
 
+    trendline = "ols" if plot_trendline else None
+
     dif_fig = px.scatter(
-        diff_df, x="Slope_Diff", y="Height_Diff", color="Direction", trendline="ols"
+        diff_df,
+        x="Slope_Diff",
+        y="Height_Diff",
+        color="Direction",
+        trendline=trendline,
     )
 
     if use_full_data:
@@ -955,6 +1024,7 @@ def plot_slope_vs_height(
             labels={
                 "Height_Diff": "Mean height diff",
             },
+            trendline=trendline,
         )
         slope_fig_std = px.scatter(
             slope_df_grouped_std,
@@ -963,6 +1033,7 @@ def plot_slope_vs_height(
             labels={
                 "Height_Diff": "Height diff STD",
             },
+            trendline=trendline,
         )
     else:
         slope_fig_mean = px.scatter(
@@ -973,6 +1044,7 @@ def plot_slope_vs_height(
             labels={
                 "Height_Diff": "Mean height diff",
             },
+            trendline=trendline,
         )
         slope_fig_std = px.scatter(
             slope_df_grouped_std,
@@ -982,6 +1054,7 @@ def plot_slope_vs_height(
             labels={
                 "Height_Diff": "Height diff STD",
             },
+            trendline=trendline,
         )
 
     figures = [dif_fig, slope_fig_mean, slope_fig_std]
