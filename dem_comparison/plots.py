@@ -340,6 +340,7 @@ def plot_cross_sections(
     plot_resolution: tuple | None = None,
     dynamic_spacing: bool = True,
     aoi_buffer: int = 0,
+    preview: bool = False,
 ):
     """Plots the cross section changes of an area of interest
 
@@ -389,6 +390,8 @@ def plot_cross_sections(
         Dynamic spacing between subplots, by default True
     aoi_buffer: float, optional
         Buffering the aoi locaiton on the full map in pixels, by default 0
+    preview: bool, optional
+        Only a preview of the hillshade map with cross lines.
     Returns
     -------
     _type_
@@ -413,14 +416,15 @@ def plot_cross_sections(
     if not temp_path.exists():
         temp_path.mkdir(parents=True, exist_ok=True)
 
-    if hillshade_index is not None:
-        with rio.open(raster[hillshade_index]) as ds:
-            img = ds.read(1)
-            nan_mask = np.isnan(img)
-            img[nan_mask] = stats.mode(img[~nan_mask]).mode
-            hillshade_img = hillshade(img, skip_negative=False)
-            hillshade_img = hillshade_img.astype("uint8")
-            hillshade_img = np.dstack([hillshade_img] * 3)
+    if not preview:
+        if hillshade_index is not None:
+            with rio.open(raster[hillshade_index]) as ds:
+                img = ds.read(1)
+                nan_mask = np.isnan(img)
+                img[nan_mask] = stats.mode(img[~nan_mask]).mode
+                hillshade_img = hillshade(img, skip_negative=False)
+                hillshade_img = hillshade_img.astype("uint8")
+                hillshade_img = np.dstack([hillshade_img] * 3)
 
     with rio.open(full_map, "r") as ds:
         full_map_transform = ds.transform
@@ -485,21 +489,24 @@ def plot_cross_sections(
             color_steps=map_color_steps,
         )
         img[nan_mask] = stats.mode(img[~nan_mask]).mode
-        colorbar_colors = img[~nan_mask]
-        unique_colors = np.unique(colorbar_colors, axis=0)[::-1]
-        colorbar_colors = [f"rgb{tuple(cc.tolist())}" for cc in unique_colors]
-        colorbar_data = plot_image_data[~np.isnan(plot_image_data)]
-        binned_data, _, _, _ = bin_metrics(
-            colorbar_data, len(unique_colors), map_intensity_range
-        )
-        binned_data = np.unique(binned_data)
-        if hillshade_index is not None:
-            img = cv.addWeighted(hillshade_img, 0.5, img, 0.5, 0.0)
+        if not preview:
+            colorbar_colors = img[~nan_mask]
+            unique_colors = np.unique(colorbar_colors, axis=0)[::-1]
+            colorbar_colors = [f"rgb{tuple(cc.tolist())}" for cc in unique_colors]
+            colorbar_data = plot_image_data[~np.isnan(plot_image_data)]
+            binned_data, _, _, _ = bin_metrics(
+                colorbar_data, len(unique_colors), map_intensity_range
+            )
+            binned_data = np.unique(binned_data)
+            if hillshade_index is not None:
+                img = cv.addWeighted(hillshade_img, 0.5, img, 0.5, 0.0)
         imh, imw, _ = img.shape
         plt.imsave(temp_path / "temp_img.jpg", img)
 
     av_step_names = ["Original"] + ["Smoothing: " + str(i) for i in average_steps]
     average_steps = [None] + average_steps
+    if preview:
+        average_steps = [None]
     # buttons to create
     buttons = [
         {
@@ -550,16 +557,22 @@ def plot_cross_sections(
         horizontal_spacing=0.1,
     )
 
-    vals_list_windows_per_raster = []
-    for r in raster:
-        vals_list_windows = []
-        for w in average_steps:
-            vals_list_windows.append(
-                get_cross_section_data(
-                    r, bounds_poly, dist_step, w, along_line_ratio, across_line_ratio
+    if not preview:
+        vals_list_windows_per_raster = []
+        for r in raster:
+            vals_list_windows = []
+            for w in average_steps:
+                vals_list_windows.append(
+                    get_cross_section_data(
+                        r,
+                        bounds_poly,
+                        dist_step,
+                        w,
+                        along_line_ratio,
+                        across_line_ratio,
+                    )
                 )
-            )
-        vals_list_windows_per_raster.append(vals_list_windows)
+            vals_list_windows_per_raster.append(vals_list_windows)
 
     diff_vals_list_windows = []
     for w in average_steps:
@@ -574,96 +587,98 @@ def plot_cross_sections(
             )
         )
 
-    no_diff_styles = ["dashdot", "solid"]
-    if len(raster) > 2:
-        no_diff_styles = no_diff_styles * len(raster) // 2
-    for j, vlw in enumerate(vals_list_windows_per_raster):
-        for i, vals_list in enumerate(vlw):
-            d, v, _, _ = vals_list
-            fig.add_trace(
-                go.Scatter(
-                    x=d[0],
-                    y=v[0],
-                    mode="lines",
-                    marker=dict(
-                        color="blue" if diff_opacity == 0.0 else raster_colours[j],
+    if not preview:
+        no_diff_styles = ["dashdot", "solid"]
+        if len(raster) > 2:
+            no_diff_styles = no_diff_styles * len(raster) // 2
+        for j, vlw in enumerate(vals_list_windows_per_raster):
+            for i, vals_list in enumerate(vlw):
+                d, v, _, _ = vals_list
+                fig.add_trace(
+                    go.Scatter(
+                        x=d[0],
+                        y=v[0],
+                        mode="lines",
+                        marker=dict(
+                            color="blue" if diff_opacity == 0.0 else raster_colours[j],
+                        ),
+                        line=dict(
+                            dash=no_diff_styles[j] if diff_opacity == 0.0 else None,
+                        ),
+                        name=raster_names[j],
+                        visible=True if i == 0 else False,
                     ),
-                    line=dict(
-                        dash=no_diff_styles[j] if diff_opacity == 0.0 else None,
+                    row=1,
+                    col=1,
+                    secondary_y=False,
+                )
+                fig.add_trace(
+                    go.Scatter(
+                        x=d[1],
+                        y=v[1],
+                        mode="lines",
+                        marker=dict(
+                            color="red" if diff_opacity == 0.0 else raster_colours[j],
+                        ),
+                        line=dict(
+                            dash=no_diff_styles[j] if diff_opacity == 0.0 else None,
+                        ),
+                        name=raster_names[j],
+                        visible=True if i == 0 else False,
+                        showlegend=True if diff_opacity == 0.0 else False,
                     ),
-                    name=raster_names[j],
-                    visible=True if i == 0 else False,
-                ),
-                row=1,
-                col=1,
-                secondary_y=False,
-            )
-            fig.add_trace(
-                go.Scatter(
-                    x=d[1],
-                    y=v[1],
-                    mode="lines",
-                    marker=dict(
-                        color="red" if diff_opacity == 0.0 else raster_colours[j],
-                    ),
-                    line=dict(
-                        dash=no_diff_styles[j] if diff_opacity == 0.0 else None,
-                    ),
-                    name=raster_names[j],
-                    visible=True if i == 0 else False,
-                    showlegend=True if diff_opacity == 0.0 else False,
-                ),
-                row=3,
-                col=1,
-                secondary_y=False,
-            )
+                    row=3,
+                    col=1,
+                    secondary_y=False,
+                )
 
     for i, vals_list in enumerate(diff_vals_list_windows):
         d, v, _, pxs = vals_list
-        if diff_opacity != 0:
-            fig.add_trace(
-                go.Scatter(
-                    x=d[0],
-                    y=[abs(i) for i in v[0]],
-                    mode="lines",
-                    marker=dict(
-                        color="blue",
+        if not preview:
+            if diff_opacity != 0:
+                fig.add_trace(
+                    go.Scatter(
+                        x=d[0],
+                        y=[abs(i) for i in v[0]],
+                        mode="lines",
+                        marker=dict(
+                            color="blue",
+                        ),
+                        name="Absolute diff (major axis)",
+                        visible=True if i == 0 else False,
+                        opacity=diff_opacity,
                     ),
-                    name="Absolute diff along",
-                    visible=True if i == 0 else False,
-                    opacity=diff_opacity,
-                ),
-                row=1,
-                col=1,
-                secondary_y=True,
-            )
-            fig.add_trace(
-                go.Scatter(
-                    x=d[1],
-                    y=[abs(i) for i in v[1]],
-                    mode="lines",
-                    marker=dict(
-                        color="red",
+                    row=1,
+                    col=1,
+                    secondary_y=True,
+                )
+                fig.add_trace(
+                    go.Scatter(
+                        x=d[1],
+                        y=[abs(i) for i in v[1]],
+                        mode="lines",
+                        marker=dict(
+                            color="red",
+                        ),
+                        name="Absolute diff (minor axis)",
+                        visible=True if i == 0 else False,
+                        opacity=diff_opacity,
                     ),
-                    name="Absolute diff across",
-                    visible=True if i == 0 else False,
-                    opacity=diff_opacity,
-                ),
-                row=3,
-                col=1,
-                secondary_y=True,
-            )
+                    row=3,
+                    col=1,
+                    secondary_y=True,
+                )
         fig.add_trace(
             go.Scatter(
-                x=[i[0] for i in pxs[0]],
-                y=[imh - i[1] for i in pxs[0]],
+                x=[j[0] for j in pxs[0]],
+                y=[imh - j[1] for j in pxs[0]],
                 mode="lines",
                 marker=dict(
                     color="blue",
                 ),
-                name="Map diff (Blue line)",
+                name="Map cross-section (major axis)",
                 hovertemplate="%{text}",
-                text=[f"{v[0][i]}" for i in range(len(v[0]))],
+                text=[f"{v[0][j]}" for j in range(len(v[0]))],
                 visible=True if i == 0 else False,
             ),
             row=3,
@@ -671,15 +686,15 @@ def plot_cross_sections(
         )
         fig.add_trace(
             go.Scatter(
-                x=[i[0] for i in pxs[1]],
-                y=[imh - i[1] for i in pxs[1]],
+                x=[j[0] for j in pxs[1]],
+                y=[imh - j[1] for j in pxs[1]],
                 mode="lines",
                 marker=dict(
                     color="red",
                 ),
-                name="Map diff (Red line)",
+                name="Map cross-section (minor axis)",
                 hovertemplate="%{text}",
-                text=[f"{v[1][i]}" for i in range(len(v[1]))],
+                text=[f"{v[1][j]}" for j in range(len(v[1]))],
                 visible=True if i == 0 else False,
             ),
             row=3,
@@ -723,62 +738,63 @@ def plot_cross_sections(
         row=3,
         col=2,
     )
-    fig.add_trace(
-        go.Image(
-            z=full_map_img,
-            x0=0,
-            dx=1,
-            dy=1,
-            visible=True,
-            name="",
-            hoverinfo="none",
-        ),
-        row=1,
-        col=2,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=list(range(imw // 2, imw // 2 + len(colorbar_colors))),
-            y=list(range(imh // 2, imh // 2 + len(colorbar_colors))),
-            mode="markers",
-            marker=dict(
-                opacity=0.0,
-                colorscale=colorbar_colors,
-                showscale=True,
-                cmin=binned_data.min(),
-                cmax=binned_data.max(),
-                colorbar=dict(
-                    x=0.95,
-                    y=0.25,
-                    thickness=15,
-                    tickvals=[
-                        binned_data.min(),
-                        binned_data.mean(),
-                        binned_data.max(),
-                    ],
-                    ticktext=[
-                        "{:.2f}".format(colorbar_data.min()),
-                        "{:.2f}".format(colorbar_data.mean()),
-                        "{:.2f}".format(colorbar_data.max()),
-                    ],
-                    outlinewidth=0,
-                    len=0.5,
-                ),
+    if not preview:
+        fig.add_trace(
+            go.Image(
+                z=full_map_img,
+                x0=0,
+                dx=1,
+                dy=1,
+                visible=True,
+                name="",
+                hoverinfo="none",
             ),
-            showlegend=False,
-            visible=True,
-            hoverinfo="none",
-            name="",
-        ),
-        row=3,
-        col=2,
-    )
+            row=1,
+            col=2,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=list(range(imw // 2, imw // 2 + len(colorbar_colors))),
+                y=list(range(imh // 2, imh // 2 + len(colorbar_colors))),
+                mode="markers",
+                marker=dict(
+                    opacity=0.0,
+                    colorscale=colorbar_colors,
+                    showscale=True,
+                    cmin=binned_data.min(),
+                    cmax=binned_data.max(),
+                    colorbar=dict(
+                        x=0.95,
+                        y=0.25,
+                        thickness=15,
+                        tickvals=[
+                            binned_data.min(),
+                            binned_data.mean(),
+                            binned_data.max(),
+                        ],
+                        ticktext=[
+                            "{:.2f}".format(colorbar_data.min()),
+                            "{:.2f}".format(colorbar_data.mean()),
+                            "{:.2f}".format(colorbar_data.max()),
+                        ],
+                        outlinewidth=0,
+                        len=0.5,
+                    ),
+                ),
+                showlegend=False,
+                visible=True,
+                hoverinfo="none",
+                name="",
+            ),
+            row=3,
+            col=2,
+        )
     fig.update_layout(showlegend=True)
     if diff_opacity != 0.0:
         fig.update_xaxes(title_text="Distance(m)", row=3, col=1)
     else:
-        fig.update_xaxes(title_text="Distance(m)", row=1, col=1)
-        fig.update_xaxes(title_text="Distance(m)", row=3, col=1)
+        fig.update_xaxes(title_text="Distance(m) along major axis", row=1, col=1)
+        fig.update_xaxes(title_text="Distance(m) along minor axis", row=3, col=1)
     if hillshade_index is not None:
         fig.update_xaxes(
             title_text=f"Hillshade map: {raster_names[hillshade_index]}<br></br>Colors are Differences in {axes_label} (Colorbar)",
@@ -827,7 +843,7 @@ def plot_cross_sections(
 
     shutil.rmtree(temp_path)
 
-    if save_path:
+    if (not preview) and (save_path):
         fig.write_html(save_path)
 
     return fig
