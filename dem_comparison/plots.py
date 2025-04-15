@@ -10,6 +10,7 @@ from dem_comparison.utils import (
     bin_metrics,
     read_metrics,
     hillshade,
+    filter_data,
 )
 from dem_handler.utils.spatial import resize_bounds, BoundingBox
 from PIL import Image
@@ -83,20 +84,8 @@ def plot_metrics(
         Plotly figure
     """
 
-    def filter_data(met, data_x, data_y, db, is_percentile=False):
-        if is_percentile:
-            pl = np.percentile(met, db[0])
-            pu = np.percentile(met, db[1])
-            validity_list = [True if pl < el < pu else False for el in met]
-        else:
-            validity_list = [True if db[0] <= el <= db[1] else False for el in met]
-        new_metric = [el for j, el in enumerate(met) if validity_list[j]]
-        new_x = [el for j, el in enumerate(data_x) if validity_list[j]]
-        new_y = [el for j, el in enumerate(data_y) if validity_list[j]]
-        return new_x, new_y, new_metric
-
     labels = ["ME" if is_error else "MEAN", "STD", "MSE", "NMAD"]
-    metrics, x, y = read_metrics(metric_files, numerical_axes=polar)
+    metrics, x0, y0 = read_metrics(metric_files, numerical_axes=polar)
 
     if type(data_bounds) is list:
         assert len(data_bounds) == len(
@@ -145,15 +134,15 @@ def plot_metrics(
     for i, metric in enumerate(metrics):
         if data_bounds is not None:
             if type(data_bounds) is list:
-                x, y, metric = filter_data(metric, x, y, data_bounds[i])
+                x, y, metric = filter_data(metric, x0, y0, data_bounds[i])
             else:
-                x, y, metric = filter_data(metric, x, y, data_bounds)
+                x, y, metric = filter_data(metric, x0, y0, data_bounds)
         if percentiles_bracket is not None:
             if type(percentiles_bracket) is list:
-                x, y, metric = filter_data(metric, x, y, percentiles_bracket[i], True)
+                x, y, metric = filter_data(metric, x0, y0, percentiles_bracket[i], True)
             else:
-                x, y, metric = filter_data(metric, x, y, percentiles_bracket, True)
-        if min(x) < min_lat:
+                x, y, metric = filter_data(metric, x0, y0, percentiles_bracket, True)
+        if len(x) > 0 and min(x) < min_lat:
             min_lat = min(x)
         color = metric
         hover_text = metric
@@ -236,13 +225,6 @@ def plot_metrics(
                 col=2,
             )
         else:
-            available_bins = np.array(bin_edges).tolist()
-            if np.max(metric) < max(available_bins):
-                available_bins = [be for be in available_bins if be < np.max(metric)]
-            available_bins = available_bins + [np.max(metric).tolist()]
-            if np.min(metric) > min(available_bins):
-                available_bins = [be for be in available_bins if be > np.min(metric)]
-            available_bins = [np.min(metric).tolist()] + available_bins
             hover_text_hist = [
                 f"{np.round(be, 2)}-{np.round(be + bin_steps[k], 2)}"
                 for k, be in enumerate(np.array(bin_edges).tolist())
@@ -250,7 +232,7 @@ def plot_metrics(
             fig.add_trace(
                 go.Bar(
                     x=bin_edges,
-                    y=np.histogram(metric, available_bins)[0],
+                    y=np.histogram(metric, bin_edges)[0],
                     visible=True if i == 0 else False,
                     showlegend=False,
                     name=labels[i],
@@ -258,6 +240,7 @@ def plot_metrics(
                     + "<br></br>"
                     + "<b>Freq: %{y}</b>",
                     customdata=hover_text_hist,
+                    marker=dict(color=np.unique(color).tolist(), colorscale="temps_r"),
                 ),
                 row=1,
                 col=2,

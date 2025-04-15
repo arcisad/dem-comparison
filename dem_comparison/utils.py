@@ -393,7 +393,7 @@ def read_metrics(metric_files: list[Path], numerical_axes: bool = False) -> tupl
     Returns
     -------
     tuple
-        Metrics
+        Metrics, x, y
     """
     data = []
     for pkl in metric_files:
@@ -712,6 +712,12 @@ def bin_metrics(
 
     if type(bins) is list:
         left_edges = bins
+        left_edges = np.array(left_edges).tolist()
+        if np.max(metric) < max(left_edges):
+            left_edges = [be for be in left_edges if be < np.max(metric)]
+        left_edges = left_edges + [np.max(metric).tolist()]
+        if np.min(metric) > min(left_edges):
+            left_edges = [be for be in left_edges if be > np.min(metric)]
         round_left_edges = [np.round(e, 2) for e in left_edges]
         if np.round(np.max(metric), 2) not in round_left_edges:
             left_edges = left_edges + [np.max(metric).tolist()]
@@ -847,3 +853,31 @@ def bulk_upload_files(
             )
 
     return file_objects
+
+
+def filter_data(met, data_x, data_y, db, is_percentile=False):
+    """Filters data given the bounds or percentile brackets.
+
+    Parameters
+    ----------
+    met : metric data (z values)
+    data_x : data on x axis
+    data_y : data on y axis
+    db : data bounds
+    is_percentile : bool, optional
+        if the bounds are percentle brackets.
+
+    Returns
+    -------
+    filtered x, y and metrics
+    """
+    if is_percentile:
+        pl = np.percentile(met, db[0])
+        pu = np.percentile(met, db[1])
+        validity_list = [True if pl < el < pu else False for el in met]
+    else:
+        validity_list = [True if db[0] <= el <= db[1] else False for el in met]
+    new_metric = [el for j, el in enumerate(met) if validity_list[j]]
+    new_x = [el for j, el in enumerate(data_x) if validity_list[j]]
+    new_y = [el for j, el in enumerate(data_y) if validity_list[j]]
+    return new_x, new_y, new_metric
