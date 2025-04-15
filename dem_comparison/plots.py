@@ -102,6 +102,11 @@ def plot_metrics(
             metrics
         ), "If used as a list, the number of bins should be the same as the number of metrics."
 
+    if percentiles_bracket and data_bounds:
+        raise Exception(
+            "Percentile brackets does not work with data bounds at the moment. Please turn one of them off."
+        )
+
     # buttons to create
     buttons = [
         {
