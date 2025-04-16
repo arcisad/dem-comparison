@@ -686,6 +686,7 @@ def bin_metrics(
     metric: list | np.ndarray,
     bins: int | list = 15,
     bounds: tuple | None = None,
+    exclude_range: list | None = None,
 ) -> tuple:
     """Creates bins of metrics values
 
@@ -696,11 +697,21 @@ def bin_metrics(
        Number of bins or list of left edges, by default 15
     bounds : tuple
         Bounds to clip the metric values
+    exclude_range: list | None,
+        All the bins whithin this range will be dropped, by default None
 
     Returns
     -------
-    new metric, bin left edges, bin steps and bin interval,
+    new metric, bin left edges, bin steps and bin interval
     """
+
+    def exclude_manual(ex_range, out_edges):
+        left_cond = np.array(left_edges) < ex_range[0]
+        right_cond = np.array(left_edges) > ex_range[1]
+        left_out_edges = np.array(out_edges)[left_cond].tolist()
+        right_out_edges = np.array(out_edges)[right_cond].tolist()
+        out_edges = left_out_edges + exclude_range + right_out_edges
+        return out_edges
 
     if type(metric) is list:
         metric = np.array(metric)
@@ -723,12 +734,21 @@ def bin_metrics(
             left_edges = left_edges + [np.max(metric).tolist()]
         if np.round(np.min(metric), 2) not in round_left_edges:
             left_edges = [np.min(metric).tolist()] + left_edges
+        if exclude_range is not None:
+            left_edges = exclude_manual(exclude_range, left_edges)
         step_vals = np.diff(left_edges).tolist()
         left_edges = left_edges[:-1]
     else:
         step_val = (bounds[1] - bounds[0]) / bins
-        left_edges = np.arange(bounds[0], bounds[1], step_val)
+        left_edges = np.arange(bounds[0], bounds[1], step_val).tolist() + [
+            np.max(metric).tolist()
+        ]
         step_vals = [np.array(step_val).tolist()] * len(left_edges)
+        if exclude_range is not None:
+            left_edges = exclude_manual(exclude_range, left_edges)
+            step_vals = np.diff(left_edges).tolist() + [
+                np.max(metric).tolist() - exclude_range[1]
+            ]
 
     new_metric = np.zeros_like(metric).astype("float")
     diff_list = np.zeros_like(metric).astype("float")
@@ -744,7 +764,11 @@ def bin_metrics(
     return (
         new_metric,
         left_edges,
-        (step_vals[0] if type(bins) is int else step_vals),
+        (
+            step_vals[0]
+            if (type(bins) is int) and (exclude_range is None)
+            else step_vals
+        ),
         diff_list.tolist(),
     )
 
@@ -855,7 +879,14 @@ def bulk_upload_files(
     return file_objects
 
 
-def filter_data(met, data_x, data_y, db, is_percentile=False):
+def filter_data(
+    met: list,
+    data_x: list,
+    data_y: list,
+    db: tuple,
+    is_percentile: bool = False,
+    return_outliers: bool = False,
+):
     """Filters data given the bounds or percentile brackets.
 
     Parameters
@@ -865,7 +896,9 @@ def filter_data(met, data_x, data_y, db, is_percentile=False):
     data_y : data on y axis
     db : data bounds
     is_percentile : bool, optional
-        if the bounds are percentle brackets.
+        If the bounds are percentle brackets, by default False
+    return_outliers: bool,
+        Only returns outliers, by default False
 
     Returns
     -------
@@ -874,9 +907,23 @@ def filter_data(met, data_x, data_y, db, is_percentile=False):
     if is_percentile:
         pl = np.percentile(met, db[0])
         pu = np.percentile(met, db[1])
-        validity_list = [True if pl < el < pu else False for el in met]
+        validity_list = [
+            (
+                (False if return_outliers else True)
+                if pl < el < pu
+                else (True if return_outliers else False)
+            )
+            for el in met
+        ]
     else:
-        validity_list = [True if db[0] <= el <= db[1] else False for el in met]
+        validity_list = [
+            (
+                (False if return_outliers else True)
+                if db[0] <= el <= db[1]
+                else (True if return_outliers else False)
+            )
+            for el in met
+        ]
     new_metric = [el for j, el in enumerate(met) if validity_list[j]]
     new_x = [el for j, el in enumerate(data_x) if validity_list[j]]
     new_y = [el for j, el in enumerate(data_y) if validity_list[j]]

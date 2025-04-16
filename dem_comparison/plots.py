@@ -54,6 +54,7 @@ def plot_metrics(
     data_bounds: tuple | list[tuple] | None = None,
     bins: int | list | None = None,
     percentiles_bracket: tuple | list[tuple] | None = None,
+    percentile_outliers: bool = False,
     plot_resolution: tuple | None = None,
 ) -> go.Figure:
     """Plots the metrics for the DEMS as an interactive plot
@@ -77,6 +78,8 @@ def plot_metrics(
         Only uses the data within the given percentals bracket (lower, upper). If used with `data_bounds`, the percentiles are applied on filtered data by the bounds, by default None.
     plot_resolution: tuple | None, optional,
         Turns autosize off and force the resolution (h, w), by default None
+    percentile_outliers: bool,
+        Find outliers when using percentiles, by default False
 
     Returns
     -------
@@ -106,6 +109,8 @@ def plot_metrics(
         raise Exception(
             "Percentile brackets does not work with data bounds at the moment. Please turn one of them off."
         )
+    if percentiles_bracket is None:
+        percentile_outliers = False
 
     # buttons to create
     buttons = [
@@ -136,17 +141,39 @@ def plot_metrics(
     if not polar:
         fig.update_layout(xaxis_title="Lat", yaxis_title="Lon")
     min_lat = 90
+    plot_bins = []
     for i, metric in enumerate(metrics):
         if data_bounds is not None:
             if type(data_bounds) is list:
                 x, y, metric = filter_data(metric, x0, y0, data_bounds[i])
             else:
                 x, y, metric = filter_data(metric, x0, y0, data_bounds)
+
+        if percentile_outliers:
+            if type(percentiles_bracket) is list:
+                lower_percentile = np.percentile(
+                    metric, percentiles_bracket[i][0]
+                ).tolist()
+                upper_percentile = np.percentile(
+                    metric, percentiles_bracket[i][1]
+                ).tolist()
+            else:
+                lower_percentile = np.percentile(
+                    metric, percentiles_bracket[0]
+                ).tolist()
+                upper_percentile = np.percentile(
+                    metric, percentiles_bracket[1]
+                ).tolist()
+
         if percentiles_bracket is not None:
             if type(percentiles_bracket) is list:
-                x, y, metric = filter_data(metric, x0, y0, percentiles_bracket[i], True)
+                x, y, metric = filter_data(
+                    metric, x0, y0, percentiles_bracket[i], True, percentile_outliers
+                )
             else:
-                x, y, metric = filter_data(metric, x0, y0, percentiles_bracket, True)
+                x, y, metric = filter_data(
+                    metric, x0, y0, percentiles_bracket, True, percentile_outliers
+                )
         if len(x) > 0 and min(x) < min_lat:
             min_lat = min(x)
         color = metric
@@ -154,15 +181,34 @@ def plot_metrics(
         if bins is not None:
             if type(bins) is list:
                 bin_vals, bin_edges, bin_steps, diff_list = bin_metrics(
-                    metric, bins=bins[i]
+                    metric,
+                    bins=bins[i],
+                    exclude_range=(
+                        [lower_percentile, upper_percentile]
+                        if percentile_outliers
+                        else None
+                    ),
                 )
                 if type(bin_steps) is not list:
-                    bin_steps = [bin_steps] * len(bin_edges)
+                    plot_bins.append(bins[i])
+                else:
+                    if not percentile_outliers:
+                        plot_bins.append([np.round(b, 1).tolist() for b in bin_edges])
+                    else:
+                        plot_bins.append(bins[i])
             else:
                 bin_vals, bin_edges, bin_steps, diff_list = bin_metrics(
-                    metric, bins=bins
+                    metric,
+                    bins=bins,
+                    exclude_range=(
+                        [lower_percentile, upper_percentile]
+                        if percentile_outliers
+                        else None
+                    ),
                 )
-                bin_steps = [bin_steps] * len(bin_edges)
+                if not percentile_outliers:
+                    bin_steps = [bin_steps] * len(bin_edges)
+                plot_bins = [bins]
             if type(bin_steps) is not list:
                 bin_steps = [bin_steps] * len(bin_edges)
             color = bin_vals
@@ -233,11 +279,20 @@ def plot_metrics(
             hover_text_hist = [
                 f"{np.round(be, 2)}-{np.round(be + bin_steps[k], 2)}"
                 for k, be in enumerate(np.array(bin_edges).tolist())
-            ]
+            ][:-1]
+            bar_colors = [be + bin_steps[i] / 2 for i, be in enumerate(bin_edges)][:-1]
+            edges = bin_edges[:-1]
+            hist = np.histogram(metric, bin_edges)[0].tolist()
+            if percentile_outliers:
+                invalid_idx = edges.index(lower_percentile)
+                del hover_text_hist[invalid_idx]
+                del bar_colors[invalid_idx]
+                del edges[invalid_idx]
+                del hist[invalid_idx]
             fig.add_trace(
                 go.Bar(
-                    x=bin_edges,
-                    y=np.histogram(metric, bin_edges)[0],
+                    x=edges,
+                    y=hist,
                     visible=True if i == 0 else False,
                     showlegend=False,
                     name=labels[i],
@@ -245,7 +300,7 @@ def plot_metrics(
                     + "<br></br>"
                     + "<b>Freq: %{y}</b>",
                     customdata=hover_text_hist,
-                    marker=dict(color=np.unique(color).tolist(), colorscale="temps_r"),
+                    marker=dict(color=bar_colors, colorscale="temps_r"),
                 ),
                 row=1,
                 col=2,
@@ -284,14 +339,12 @@ def plot_metrics(
     fig_title = "Elevation difference metrics. <span style='font-size: 12px;'>With "
     if bins is not None:
         fig_title += (
-            f"num bins for each metirc: {bins}{'.</span>' if alone_cond else ', '}"
+            f"num bins for each metric: {plot_bins}{'.</span>' if alone_cond else ', '}"
         )
     if data_bounds is not None:
         fig_title += f"thresholds for each metric: {data_bounds}{ending}"
     if percentiles_bracket is not None:
-        fig_title += (
-            f"percentile brackets for each metric: {percentiles_bracket}.</span>"
-        )
+        fig_title += f"{"excluding " if percentile_outliers else ""}percentile brackets for each metric: {percentiles_bracket}.</span>"
     fig.update_layout(title=dict(text=fig_title))
     if plot_resolution:
         fig.update_layout(
