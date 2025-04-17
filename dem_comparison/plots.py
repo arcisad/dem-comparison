@@ -489,7 +489,7 @@ def plot_cross_sections(
                     (full_map_transform.f - plot_bounds[1]) / abs(full_map_transform.e)
                 )
             )
-            - aoi_buffer
+            + aoi_buffer
         )
         maxx = (
             int(
@@ -503,7 +503,7 @@ def plot_cross_sections(
                     (full_map_transform.f - plot_bounds[3]) / abs(full_map_transform.e)
                 )
             )
-            + aoi_buffer
+            - aoi_buffer
         )
         full_map_img_rect = full_map_img.copy()
         full_map_img_rect = cv.rectangle(
