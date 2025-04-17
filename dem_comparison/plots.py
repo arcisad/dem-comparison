@@ -211,6 +211,8 @@ def plot_metrics(
                 plot_bins = [bins]
             if type(bin_steps) is not list:
                 bin_steps = [bin_steps] * len(bin_edges)
+            new_max = bin_vals[bin_vals != bin_vals.max()].max()
+            bin_vals = np.where(bin_vals != bin_vals.max(), bin_vals, new_max)
             color = bin_vals
             hover_text = []
             for k, bv in enumerate(bin_vals):
