@@ -206,6 +206,11 @@ def analyse_difference_for_interval(
     lat_range = list(lat_range)
     lon_range = list(lon_range)
 
+    if len(lat_range) < 2:
+        lat_range = [lat_range[0], lat_range[0] + 1]
+    if len(lon_range) < 2:
+        lon_range = [lon_range[0], lon_range[0] + 1]
+
     lat_range = buffer_range(lat_range, range_index_buffer)
     lon_range = buffer_range(lon_range, range_index_buffer)
 
