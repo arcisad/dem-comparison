@@ -578,8 +578,8 @@ def get_cross_section_data(
     bounds_poly: Polygon,
     step_size: float = 30.0,
     average_window: int | None = None,
-    along_line_ratio: float = 0.5,
-    across_line_ratio: float = 0.5,
+    major_axis_ratio: float = 0.5,
+    minor_axis_ratio: float = 0.5,
 ):
     """Finds values of a raster along the crossing lines at the centre of either side of a given bounding box.
 
@@ -591,9 +591,9 @@ def get_cross_section_data(
         Steps for calculating the values along the crossing lines, by default 30
     average_window:int | None, optional,
         If passed, a moving average of the data by this window size will be returned, by default None
-    along_line_ratio: float, optional
+    major_axis_ratio: float, optional
         Location of the line along the bounding box on the shorter side, by default 0.5
-    along_line_ratio: float, optional
+    minor_axis_ratio: float, optional
         Location of the line across the bounding box on the longer side, by default 0.5
 
     Returns
@@ -603,7 +603,7 @@ def get_cross_section_data(
     with rio.open(raster, "r") as ds:
         transform = ds.transform
         img = ds.read(1)
-        l1, l2 = get_cross_lines(bounds_poly, along_line_ratio, across_line_ratio)
+        l1, l2 = get_cross_lines(bounds_poly, major_axis_ratio, minor_axis_ratio)
 
         value_list = []
         dist_list = []

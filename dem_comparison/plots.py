@@ -377,8 +377,8 @@ def plot_cross_sections(
     map_intensity_range: tuple = (-50, 50),
     map_color_steps: int = 15,
     aoi_name: str = "",
-    along_line_ratio: float = 0.5,
-    across_line_ratio: float = 0.5,
+    major_axis_ratio: float = 0.5,
+    minor_axis_ratio: float = 0.5,
     hillshade_index: int | None = None,
     plot_resolution: tuple | None = None,
     dynamic_spacing: bool = True,
@@ -421,9 +421,9 @@ def plot_cross_sections(
         Number of color steps in the background map, by default 15
     aoi_name : str, optional
         Name of the area of interest to go into plot title, by default ""
-    along_line_ratio: float, optional
+    major_axis_ratio: float, optional
         Location of the line along the bounding box on the shorter side, by default 0.5
-    along_line_ratio: float, optional
+    minor_axis_ratio: float, optional
         Location of the line across the bounding box on the longer side, by default 0.5
     hillshade_index: int | None, optional
         If provided, the raster with this index from the input list will be used for the map with the diff map overlaid on it, by default None
@@ -611,8 +611,8 @@ def plot_cross_sections(
                         bounds_poly,
                         dist_step,
                         w,
-                        along_line_ratio,
-                        across_line_ratio,
+                        major_axis_ratio,
+                        minor_axis_ratio,
                     )
                 )
             vals_list_windows_per_raster.append(vals_list_windows)
@@ -625,8 +625,8 @@ def plot_cross_sections(
                 bounds_poly,
                 dist_step,
                 w,
-                along_line_ratio,
-                across_line_ratio,
+                major_axis_ratio,
+                minor_axis_ratio,
             )
         )
 
@@ -904,8 +904,8 @@ def plot_slope_vs_height(
     precision: int = 1,
     return_all_figs: bool = False,
     aoi_name: str = "",
-    along_line_ratio: float = 0.5,
-    across_line_ratio: float = 0.5,
+    major_axis_ratio: float = 0.5,
+    minor_axis_ratio: float = 0.5,
     plot_trendline: bool = False,
 ) -> go.Figure | list[go.Figure]:
     """Plots height diff vs raster slopes
@@ -932,9 +932,9 @@ def plot_slope_vs_height(
         Returns list of figures instead of a single figure with subplots, by default False
     aoi_name : str, optional
         Name of the area of interest to go into plot title, by default ""
-    along_line_ratio: float, optional
+    major_axis_ratio: float, optional
         Location of the line along the bounding box on the shorter side, by default 0.5
-    along_line_ratio: float, optional
+    minor_axis_ratio: float, optional
         Location of the line across the bounding box on the longer side, by default 0.5
     plot_trendline: bool, optional
         Plots the trendlines using Ordinary Least Squares, by default False
@@ -992,14 +992,14 @@ def plot_slope_vs_height(
         height_diff_data = get_cross_section_data(
             height_diff_raster,
             bounds_poly,
-            along_line_ratio=along_line_ratio,
-            across_line_ratio=across_line_ratio,
+            major_axis_ratio=major_axis_ratio,
+            minor_axis_ratio=minor_axis_ratio,
         )
         slope_diff_data = get_cross_section_data(
             slope_diff_raster,
             bounds_poly,
-            along_line_ratio=along_line_ratio,
-            across_line_ratio=across_line_ratio,
+            major_axis_ratio=major_axis_ratio,
+            minor_axis_ratio=minor_axis_ratio,
         )
 
         slope_data = []
@@ -1008,8 +1008,8 @@ def plot_slope_vs_height(
                 get_cross_section_data(
                     sr,
                     bounds_poly,
-                    along_line_ratio=along_line_ratio,
-                    across_line_ratio=across_line_ratio,
+                    major_axis_ratio=major_axis_ratio,
+                    minor_axis_ratio=minor_axis_ratio,
                 )
             )
 
