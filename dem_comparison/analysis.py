@@ -640,21 +640,18 @@ def area_of_interest(
         List of output file paths.
     """
 
-    diff_mos = Path(f"{save_path}/{aoi_name}_Outputs/{aoi_name}_mosaics/diff_mos.tif")
-    matched_cop_mosaic = Path(
-        f"{save_path}/{aoi_name}_Outputs/{aoi_name}_mosaics/matched_cop_mosaic.tif"
-    )
+    if save_path == Path(""):
+        save_path = Path(f"{aoi_name}_Outputs")
+
+    diff_mos = Path(f"{save_path}/{aoi_name}_mosaics/diff_mos.tif")
+    matched_cop_mosaic = Path(f"{save_path}/{aoi_name}_mosaics/matched_cop_mosaic.tif")
     matched_rema_mosaic = Path(
-        f"{save_path}/{aoi_name}_Outputs/{aoi_name}_mosaics/matched_rema_mosaic.tif"
+        f"{save_path}/{aoi_name}_mosaics/matched_rema_mosaic.tif"
     )
 
-    slope_diff = Path(f"{save_path}/{aoi_name}_Outputs/{aoi_name}_mosaics/slope_diff.tif")
-    matched_cop_slope = Path(
-        f"{save_path}/{aoi_name}_Outputs/{aoi_name}_mosaics/matched_cop_slope.tif"
-    )
-    matched_rema_slope = Path(
-        f"{save_path}/{aoi_name}_Outputs/{aoi_name}_mosaics/matched_rema_slope.tif"
-    )
+    slope_diff = Path(f"{save_path}/{aoi_name}_mosaics/slope_diff.tif")
+    matched_cop_slope = Path(f"{save_path}/{aoi_name}_mosaics/matched_cop_slope.tif")
+    matched_rema_slope = Path(f"{save_path}/{aoi_name}_mosaics/matched_rema_slope.tif")
 
     outputs = [diff_mos, matched_rema_mosaic, matched_cop_mosaic]
 
@@ -696,7 +693,7 @@ def area_of_interest(
         lat_range,
         lon_range,
         temp_path=temp_path,
-        save_dir_path=Path(f"{save_path}/{aoi_name}_Outputs"),
+        save_dir_path=Path(f"{save_path}"),
         use_multiprocessing=True,
         query_num_tasks=None,
         keep_temp_files=True,
@@ -706,7 +703,7 @@ def area_of_interest(
         cop30_index_path=cop30_index_path,
     )
 
-    os.makedirs(f"{save_path}/{aoi_name}_Outputs/{aoi_name}_mosaics", exist_ok=True)
+    os.makedirs(f"{save_path}/{aoi_name}_mosaics", exist_ok=True)
 
     if src_crs == REMA_CRS:
         rema_bounds = aoi_poly.bounds
@@ -716,8 +713,8 @@ def area_of_interest(
     cop_dems = glob.glob(f"{temp_path}/**/TEMP_COP_ELLIPSOID.tif")
     rema_dems = glob.glob(f"{temp_path}/**/TEMP_REMA.tif")
 
-    cop_mosaic = Path(f"{save_path}/{aoi_name}_Outputs/cop_mosaic.tif")
-    rema_mosaic = Path(f"{save_path}/{aoi_name}_Outputs/rema_mosaic.tif")
+    cop_mosaic = Path(f"{save_path}/cop_mosaic.tif")
+    rema_mosaic = Path(f"{save_path}/rema_mosaic.tif")
 
     simple_mosaic(
         cop_dems,
@@ -734,7 +731,7 @@ def area_of_interest(
         )
         repr_img = repr_img.squeeze()
 
-    repr_cop_mosaic = Path(f"{save_path}/{aoi_name}_Outputs/repr_cop_mosaic.tif")
+    repr_cop_mosaic = Path(f"{save_path}/repr_cop_mosaic.tif")
 
     with rio.open(repr_cop_mosaic, "w", **repr_profile) as ds:
         ds.write(repr_img, 1)
@@ -788,9 +785,9 @@ def area_of_interest(
         os.remove(rema_mosaic)
         os.remove(repr_cop_mosaic)
         shutil.rmtree(Path(f"{temp_path}"))
-        shutil.rmtree(Path(f"{save_path}/{aoi_name}_Outputs/dem_diff"))
-        shutil.rmtree(Path(f"{save_path}/{aoi_name}_Outputs/dem_diff_metrics"))
-        shutil.rmtree(Path(f"{save_path}/{aoi_name}_Outputs/original_rema_metrics"))
+        shutil.rmtree(Path(f"{save_path}/dem_diff"))
+        shutil.rmtree(Path(f"{save_path}/dem_diff_metrics"))
+        shutil.rmtree(Path(f"{save_path}/original_rema_metrics"))
 
     if s3_upload_dir is not None:
         with open(credentials_file) as f:
@@ -806,7 +803,7 @@ def area_of_interest(
         )
         if s3_upload_dir == "auto":
             s3_dir = Path(f"dem_comparison_results/{aoi_name}_Outputs")
-        local_dir = Path(f"{save_path}/{aoi_name}_Outputs")
+        local_dir = Path(f"{save_path}")
         bulk_upload_files(
             s3_dir,
             local_dir,
