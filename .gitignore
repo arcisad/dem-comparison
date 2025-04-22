@@ -22,6 +22,10 @@ build
 # include test data files
 !dem_comparison/data/*.gpkg
 
+# include test notebooks and files
+!test_notebooks/*.ipynb
+!test_notebooks/*.py
+
 # ignore secret files
 *.secret
 

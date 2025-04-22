@@ -596,6 +596,8 @@ def area_of_interest(
     desired_resolution: float | tuple = 30.0,
     s3_upload_dir: str | None = None,
     credentials_file: Path | None = None,
+    save_path: Path = Path(""),
+    temp_path: Path = Path(""),
 ) -> list[Path]:
     """Generates mosaics for a give area of interest
 
@@ -627,6 +629,10 @@ def area_of_interest(
         Bucket is hardcoded to `deant-data-public-dev` and the region is `ap-souteast-2`, by default None,
     credentials_file: Path | None, optional
         IF uploading to S3, a yaml file containing AWS credentials should be provided, by default None
+    save_path: Path, optional
+        Path to save the output files, by default Path("")
+    temp_path: Path, optional
+        Path to save the temporary files, by default Path("")
 
     Returns
     -------
@@ -634,20 +640,20 @@ def area_of_interest(
         List of output file paths.
     """
 
-    diff_mos = Path(f"{aoi_name}_Outputs/{aoi_name}_mosaics/diff_mos.tif")
+    diff_mos = Path(f"{save_path}/{aoi_name}_Outputs/{aoi_name}_mosaics/diff_mos.tif")
     matched_cop_mosaic = Path(
-        f"{aoi_name}_Outputs/{aoi_name}_mosaics/matched_cop_mosaic.tif"
+        f"{save_path}/{aoi_name}_Outputs/{aoi_name}_mosaics/matched_cop_mosaic.tif"
     )
     matched_rema_mosaic = Path(
-        f"{aoi_name}_Outputs/{aoi_name}_mosaics/matched_rema_mosaic.tif"
+        f"{save_path}/{aoi_name}_Outputs/{aoi_name}_mosaics/matched_rema_mosaic.tif"
     )
 
-    slope_diff = Path(f"{aoi_name}_Outputs/{aoi_name}_mosaics/slope_diff.tif")
+    slope_diff = Path(f"{save_path}/{aoi_name}_Outputs/{aoi_name}_mosaics/slope_diff.tif")
     matched_cop_slope = Path(
-        f"{aoi_name}_Outputs/{aoi_name}_mosaics/matched_cop_slope.tif"
+        f"{save_path}/{aoi_name}_Outputs/{aoi_name}_mosaics/matched_cop_slope.tif"
     )
     matched_rema_slope = Path(
-        f"{aoi_name}_Outputs/{aoi_name}_mosaics/matched_rema_slope.tif"
+        f"{save_path}/{aoi_name}_Outputs/{aoi_name}_mosaics/matched_rema_slope.tif"
     )
 
     outputs = [diff_mos, matched_rema_mosaic, matched_cop_mosaic]
@@ -684,11 +690,13 @@ def area_of_interest(
     lat_range = range(extended_aoi_bounds[1], extended_aoi_bounds[3])
     lon_range = range(extended_aoi_bounds[0], extended_aoi_bounds[2])
 
+    if temp_path == Path(""):
+        temp_path = Path(f"TEMP_{aoi_name}")
     analyse_difference_for_interval(
         lat_range,
         lon_range,
-        temp_path=Path(f"TEMP_{aoi_name}"),
-        save_dir_path=Path(f"{aoi_name}_Outputs"),
+        temp_path=temp_path,
+        save_dir_path=Path(f"{save_path}/{aoi_name}_Outputs"),
         use_multiprocessing=True,
         query_num_tasks=None,
         keep_temp_files=True,
@@ -698,18 +706,18 @@ def area_of_interest(
         cop30_index_path=cop30_index_path,
     )
 
-    os.makedirs(f"{aoi_name}_Outputs/{aoi_name}_mosaics", exist_ok=True)
+    os.makedirs(f"{save_path}/{aoi_name}_Outputs/{aoi_name}_mosaics", exist_ok=True)
 
     if src_crs == REMA_CRS:
         rema_bounds = aoi_poly.bounds
     else:
         rema_bounds = transform_polygon(aoi_poly, src_crs, REMA_CRS).bounds
 
-    cop_dems = glob.glob(f"TEMP_{aoi_name}/**/TEMP_COP_ELLIPSOID.tif")
-    rema_dems = glob.glob(f"TEMP_{aoi_name}/**/TEMP_REMA.tif")
+    cop_dems = glob.glob(f"{temp_path}/**/TEMP_COP_ELLIPSOID.tif")
+    rema_dems = glob.glob(f"{temp_path}/**/TEMP_REMA.tif")
 
-    cop_mosaic = Path(f"{aoi_name}_Outputs/cop_mosaic.tif")
-    rema_mosaic = Path(f"{aoi_name}_Outputs/rema_mosaic.tif")
+    cop_mosaic = Path(f"{save_path}/{aoi_name}_Outputs/cop_mosaic.tif")
+    rema_mosaic = Path(f"{save_path}/{aoi_name}_Outputs/rema_mosaic.tif")
 
     simple_mosaic(
         cop_dems,
@@ -726,7 +734,7 @@ def area_of_interest(
         )
         repr_img = repr_img.squeeze()
 
-    repr_cop_mosaic = Path(f"{aoi_name}_Outputs/repr_cop_mosaic.tif")
+    repr_cop_mosaic = Path(f"{save_path}/{aoi_name}_Outputs/repr_cop_mosaic.tif")
 
     with rio.open(repr_cop_mosaic, "w", **repr_profile) as ds:
         ds.write(repr_img, 1)
@@ -779,10 +787,10 @@ def area_of_interest(
         os.remove(cop_mosaic)
         os.remove(rema_mosaic)
         os.remove(repr_cop_mosaic)
-        shutil.rmtree(Path(f"TEMP_{aoi_name}"))
-        shutil.rmtree(Path(f"{aoi_name}_Outputs/dem_diff"))
-        shutil.rmtree(Path(f"{aoi_name}_Outputs/dem_diff_metrics"))
-        shutil.rmtree(Path(f"{aoi_name}_Outputs/original_rema_metrics"))
+        shutil.rmtree(Path(f"{temp_path}"))
+        shutil.rmtree(Path(f"{save_path}/{aoi_name}_Outputs/dem_diff"))
+        shutil.rmtree(Path(f"{save_path}/{aoi_name}_Outputs/dem_diff_metrics"))
+        shutil.rmtree(Path(f"{save_path}/{aoi_name}_Outputs/original_rema_metrics"))
 
     if s3_upload_dir is not None:
         with open(credentials_file) as f:
@@ -798,7 +806,7 @@ def area_of_interest(
         )
         if s3_upload_dir == "auto":
             s3_dir = Path(f"dem_comparison_results/{aoi_name}_Outputs")
-        local_dir = Path(f"{aoi_name}_Outputs")
+        local_dir = Path(f"{save_path}/{aoi_name}_Outputs")
         bulk_upload_files(
             s3_dir,
             local_dir,

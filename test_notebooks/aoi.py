@@ -20,8 +20,6 @@ import yaml
 logging.basicConfig(level=logging.INFO)
 
 upload_files = False
-up_input = input("Upload files to S3 (y/n)?")
-upload_files == "y"
 
 if upload_files:
     yaml_file = input("Enter path to credential file:")
@@ -75,8 +73,8 @@ for location_name in location_names:
     analyse_difference_for_interval(
         lat_ranges[location_dict[location_name]],
         lon_ranges[location_dict[location_name]],
-        temp_path=Path(f"TEMP_{location_name}"),
-        save_dir_path=Path(f"{location_name}_Outputs"),
+        temp_path=Path(f"../temp/TEMP_{location_name}"),
+        save_dir_path=Path(f"../temp/{location_name}_Outputs"),
         use_multiprocessing=True,
         query_num_tasks=None,
         keep_temp_files=False,
@@ -86,23 +84,27 @@ for location_name in location_names:
         cop30_index_path=Path("../dem_comparison/data/copdem_tindex_filename.gpkg"),
     )
 
-    os.makedirs(f"{location_name}_Outputs/{location_name}_mosaics", exist_ok=True)
+    os.makedirs(
+        f"../temp/{location_name}_Outputs/{location_name}_mosaics", exist_ok=True
+    )
     diff_arrays = [
-        Path(p) for p in glob.glob(f"{location_name}_Outputs/dem_diff/*.tif")
+        Path(p) for p in glob.glob(f"../temp/{location_name}_Outputs/dem_diff/*.tif")
     ]
-    diff_mos = Path(f"{location_name}_Outputs/{location_name}_mosaics/diff_mos.tif")
+    diff_mos = Path(
+        f"../temp/{location_name}_Outputs/{location_name}_mosaics/diff_mos.tif"
+    )
     if diff_mos.exists():
         os.remove(diff_mos)
     simple_mosaic(diff_arrays, diff_mos)
 
-    pkls = sorted(glob.glob(f"{location_name}_Outputs/dem_diff_metrics/*.pkl"))
+    pkls = sorted(glob.glob(f"../temp/{location_name}_Outputs/dem_diff_metrics/*.pkl"))
     metrics, x, y = read_metrics(pkls)
     metric_strs = ["me", "std", "mse", "nmad"]
     for i, m in enumerate(metrics):
-        dems = sorted(glob.glob(f"{location_name}_Outputs/dem_diff/*.tif"))
+        dems = sorted(glob.glob(f"../temp/{location_name}_Outputs/dem_diff/*.tif"))
         simple_mosaic(
             dems,
-            f"{location_name}_Outputs/{location_name}_mosaics/dem_mos_{metric_strs[i]}.tif",
+            f"../temp/{location_name}_Outputs/{location_name}_mosaics/dem_mos_{metric_strs[i]}.tif",
             fill_value=m,
         )
 
@@ -112,8 +114,8 @@ for location_name in location_names:
             aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
             region_name=AWS_DEFAULT_REGION,
         )
-        s3_dir = Path(f"dem_comparison_results/{location_name}_Outputs")
-        local_dir = Path(f"{location_name}_Outputs")
+        s3_dir = Path(f"dem_comparison_results/Mosaics/{location_name}_Outputs")
+        local_dir = Path(f"../temp/{location_name}_Outputs")
         bulk_upload_dem_tiles(
             s3_dir,
             local_dir,
