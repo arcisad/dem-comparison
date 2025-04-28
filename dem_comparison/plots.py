@@ -381,7 +381,7 @@ def plot_cross_sections(
     minor_axis_ratio: float = 0.5,
     hillshade_index: int | None = None,
     plot_resolution: tuple | None = None,
-    dynamic_spacing: bool = True,
+    dynamic_spacing: bool = False,
     aoi_buffer: int = 0,
     preview: bool = False,
 ):
@@ -430,7 +430,7 @@ def plot_cross_sections(
     plot_resolution: tuple | None, optional,
         Turns autosize off and force the resolution (h, w), by default None
     dynamic_spacing: bool, optional
-        Dynamic spacing between subplots, by default True
+        Dynamic spacing between subplots, by default False
     aoi_buffer: float, optional
         Buffering the aoi locaiton on the full map in pixels, by default 0
     preview: bool, optional
