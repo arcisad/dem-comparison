@@ -358,6 +358,7 @@ def query_dems(
     keep_temp_files: bool = False,
     return_outputs: bool = True,
     download_files_first: bool = True,
+    remove_geoid_when_downloading: bool = False,
 ) -> tuple | None:
     """Finds the DEMs for a given bounds
 
@@ -387,6 +388,8 @@ def query_dems(
         Returns the output of anlysis, by default True.
     download_files_first, bool, optional
         Downloads all the required input files first, by default True
+    remove_geoid_when_downloading: bool, optional
+        Removes the goid when downloading the COP DEMs, by default False
 
     Returns
     -------
@@ -450,10 +453,16 @@ def query_dems(
             save_path=original_rema_metrics_path,
         )
 
+    ellipsoid_heights = False
+    download_geoid = False
+    if remove_geoid_when_downloading:
+        ellipsoid_heights = True
+        download_geoid = True
+
     _, _, downloaded_cop_files = get_cop30_dem_for_bounds(
         bounds,
         save_path=temp_path / "TEMP_COP.tif",
-        ellipsoid_heights=False,
+        ellipsoid_heights=ellipsoid_heights,
         cop30_index_path=cop30_index_path,
         cop30_folder_path=(
             Path(temp_path.parts[0]) / "COP_DEMS" if download_files_first else Path(".")
@@ -461,6 +470,7 @@ def query_dems(
         download_dem_tiles=not download_files_first,
         return_paths=False,
         num_tasks=-1 if download_files_first else None,
+        download_geoid=download_geoid,
     )
     if len(downloaded_cop_files) == 0:
         return tuple([None] * 4)
@@ -471,9 +481,10 @@ def query_dems(
         print(f"Required COP DEM: {required_cop_dem}")
 
     temp_cop_dem_raster = rio.open(required_cop_dem)
-    geoid_tif_path = temp_path / "geoid.tif"
-    if not geoid_tif_path.exists():
-        download_egm_08_geoid(geoid_tif_path, bounds=temp_cop_dem_raster.bounds)
+    if not remove_geoid_when_downloading:
+        geoid_tif_path = temp_path / "geoid.tif"
+        if not geoid_tif_path.exists():
+            download_egm_08_geoid(geoid_tif_path, bounds=temp_cop_dem_raster.bounds)
 
     temp_cop_dem_profile = temp_cop_dem_raster.profile
     temp_cop_dem_array = temp_cop_dem_raster.read(1)
@@ -481,14 +492,15 @@ def query_dems(
         temp_cop_dem_profile.update({"nodata": np.nan})
         temp_cop_dem_array[temp_cop_dem_array == 0] = np.nan
     temp_cop_dem_raster.close()
-    remove_geoid(
-        dem_array=temp_cop_dem_array,
-        dem_profile=temp_cop_dem_profile,
-        geoid_path=geoid_tif_path,
-        buffer_pixels=2,
-        save_path=temp_path / "TEMP_COP_ELLIPSOID.tif",
-    )
-    required_cop_dem = temp_path / "TEMP_COP_ELLIPSOID.tif"
+    if not remove_geoid_when_downloading:
+        remove_geoid(
+            dem_array=temp_cop_dem_array,
+            dem_profile=temp_cop_dem_profile,
+            geoid_path=geoid_tif_path,
+            buffer_pixels=2,
+            save_path=temp_path / "TEMP_COP_ELLIPSOID.tif",
+        )
+        required_cop_dem = temp_path / "TEMP_COP_ELLIPSOID.tif"
 
     cop_array, rema_array = reproject_match_tifs(
         required_cop_dem,
