@@ -415,6 +415,14 @@ def read_metrics(metric_files: list[Path], numerical_axes: bool = False) -> tupl
     mse = [i[2] for i in data]
     nmad = [i[3] for i in data]
 
+    idx = ~np.isnan(me)
+    me = np.array(me)[idx].tolist()
+    std = np.array(std)[idx].tolist()
+    mse = np.array(mse)[idx].tolist()
+    nmad = np.array(nmad)[idx].tolist()
+    x = np.array(x)[idx].tolist()
+    y = np.array(y)[idx].tolist()
+
     return [me, std, mse, nmad], x, y
 
 
