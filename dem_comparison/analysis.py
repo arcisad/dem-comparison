@@ -359,6 +359,7 @@ def query_dems(
     return_outputs: bool = True,
     download_files_first: bool = True,
     remove_geoid_when_downloading: bool = False,
+    zero_to_nan: bool | tuple = (False, True),
 ) -> tuple | None:
     """Finds the DEMs for a given bounds
 
@@ -390,6 +391,8 @@ def query_dems(
         Downloads all the required input files first, by default True
     remove_geoid_when_downloading: bool, optional
         Removes the goid when downloading the COP DEMs, by default False
+    zero_to_nan: bool, optional
+        Converts the zero values to NaN, by default (False, True)
 
     Returns
     -------
@@ -402,6 +405,9 @@ def query_dems(
     north_south = "N" if original_bounds.ymax > 0 else "S"
     top_left_str = f"{int(np.abs(np.round(original_bounds.ymin)))}{north_south}_{int(np.abs(np.round(original_bounds.xmin)))}{east_west}"
     temp_path = temp_path / top_left_str
+
+    if type(zero_to_nan) is bool:
+        zero_to_nan = (zero_to_nan, zero_to_nan)
 
     if save_dir_path:
         original_rema_metrics_path = (
@@ -472,35 +478,36 @@ def query_dems(
         num_tasks=-1 if download_files_first else None,
         download_geoid=download_geoid,
     )
-    if len(downloaded_cop_files) == 0:
-        return tuple([None] * 4)
 
     required_cop_dem = temp_path / "TEMP_COP.tif"
-    if len(downloaded_cop_files) == 1:
-        required_cop_dem = downloaded_cop_files[0]
-        print(f"Required COP DEM: {required_cop_dem}")
+    if len(downloaded_cop_files) != 0:
+        if len(downloaded_cop_files) == 1:
+            required_cop_dem = downloaded_cop_files[0]
+            print(f"Required COP DEM: {required_cop_dem}")
 
-    temp_cop_dem_raster = rio.open(required_cop_dem)
-    if not remove_geoid_when_downloading:
-        geoid_tif_path = temp_path / "geoid.tif"
-        if not geoid_tif_path.exists():
-            download_egm_08_geoid(geoid_tif_path, bounds=temp_cop_dem_raster.bounds)
+        temp_cop_dem_raster = rio.open(required_cop_dem)
+        if not remove_geoid_when_downloading:
+            geoid_tif_path = temp_path / "geoid.tif"
+            if not geoid_tif_path.exists():
+                download_egm_08_geoid(geoid_tif_path, bounds=temp_cop_dem_raster.bounds)
 
-    temp_cop_dem_profile = temp_cop_dem_raster.profile
-    temp_cop_dem_array = temp_cop_dem_raster.read(1)
-    if len(downloaded_cop_files) > 1:
-        temp_cop_dem_profile.update({"nodata": np.nan})
-        temp_cop_dem_array[temp_cop_dem_array == 0] = np.nan
-    temp_cop_dem_raster.close()
-    if not remove_geoid_when_downloading:
-        remove_geoid(
-            dem_array=temp_cop_dem_array,
-            dem_profile=temp_cop_dem_profile,
-            geoid_path=geoid_tif_path,
-            buffer_pixels=2,
-            save_path=temp_path / "TEMP_COP_ELLIPSOID.tif",
-        )
-        required_cop_dem = temp_path / "TEMP_COP_ELLIPSOID.tif"
+        temp_cop_dem_profile = temp_cop_dem_raster.profile
+        temp_cop_dem_array = temp_cop_dem_raster.read(1)
+        if len(downloaded_cop_files) > 1:
+            temp_cop_dem_profile.update({"nodata": np.nan})
+            temp_cop_dem_array[temp_cop_dem_array == 0] = np.nan
+        if zero_to_nan[0]:
+            temp_cop_dem_array[temp_cop_dem_array == 0] = np.nan
+        temp_cop_dem_raster.close()
+        if not remove_geoid_when_downloading:
+            remove_geoid(
+                dem_array=temp_cop_dem_array,
+                dem_profile=temp_cop_dem_profile,
+                geoid_path=geoid_tif_path,
+                buffer_pixels=2,
+                save_path=temp_path / "TEMP_COP_ELLIPSOID.tif",
+            )
+            required_cop_dem = temp_path / "TEMP_COP_ELLIPSOID.tif"
 
     cop_array, rema_array = reproject_match_tifs(
         required_cop_dem,
@@ -511,6 +518,14 @@ def query_dems(
         save_path_1=cop_save_path if cop_save_path else "",
         save_path_2=rema_save_path if rema_save_path else "",
     )
+    if zero_to_nan[1]:
+        rema_array.data[rema_array.data == 0] = np.nan
+        os.remove(temp_path / "TEMP_REMA.tif")
+        rema_array.rio.to_raster(temp_path / "TEMP_REMA.tif")
+
+    if len(downloaded_cop_files) == 0:
+        return tuple([None] * 4)
+
     if save_dir_path:
         if not output_dem_diff_path.parent.exists():
             output_dem_diff_path.parent.mkdir(parents=True, exist_ok=True)
