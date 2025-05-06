@@ -1,6 +1,7 @@
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
+from plotly import io as pio
 from pathlib import Path
 import numpy as np
 import rasterio as rio
@@ -56,7 +57,8 @@ def plot_metrics(
     percentiles_bracket: tuple | list[tuple] | None = None,
     percentile_outliers: bool = False,
     plot_resolution: tuple | None = None,
-) -> go.Figure:
+    return_metrics: bool = False,
+) -> go.Figure | tuple:
     """Plots the metrics for the DEMS as an interactive plot
 
     Parameters
@@ -80,6 +82,8 @@ def plot_metrics(
         Turns autosize off and force the resolution (h, w), by default None
     percentile_outliers: bool,
         Find outliers when using percentiles, by default False
+    return_metrics: bool, optional
+        If True, returns the metrics and the x and y coordinates of the data, by default False
 
     Returns
     -------
@@ -105,10 +109,6 @@ def plot_metrics(
             metrics
         ), "If used as a list, the number of bins should be the same as the number of metrics."
 
-    if percentiles_bracket and data_bounds:
-        raise Exception(
-            "Percentile brackets does not work with data bounds at the moment. Please turn one of them off."
-        )
     if percentiles_bracket is None:
         percentile_outliers = False
 
@@ -142,14 +142,21 @@ def plot_metrics(
         fig.update_layout(xaxis_title="Lat", yaxis_title="Lon")
     min_lat = 90
     plot_bins = []
+    new_metrics = []
+    new_coords = []
+    new_percentiles = []
     for i, metric in enumerate(metrics):
+        x = x0
+        y = y0
         if data_bounds is not None:
             if type(data_bounds) is list:
-                x, y, metric = filter_data(metric, x0, y0, data_bounds[i])
+                x, y, metric = filter_data(metric, x, y, data_bounds[i])
             else:
-                x, y, metric = filter_data(metric, x0, y0, data_bounds)
+                x, y, metric = filter_data(metric, x, y, data_bounds)
 
-        if percentile_outliers:
+        lower_percentile = None
+        upper_percentile = None
+        if percentiles_bracket is not None:
             if type(percentiles_bracket) is list:
                 lower_percentile = np.percentile(
                     metric, percentiles_bracket[i][0]
@@ -164,16 +171,17 @@ def plot_metrics(
                 upper_percentile = np.percentile(
                     metric, percentiles_bracket[1]
                 ).tolist()
-
-        if percentiles_bracket is not None:
             if type(percentiles_bracket) is list:
                 x, y, metric = filter_data(
-                    metric, x0, y0, percentiles_bracket[i], True, percentile_outliers
+                    metric, x, y, percentiles_bracket[i], True, percentile_outliers
                 )
             else:
                 x, y, metric = filter_data(
-                    metric, x0, y0, percentiles_bracket, True, percentile_outliers
+                    metric, x, y, percentiles_bracket, True, percentile_outliers
                 )
+        new_metrics.append(metric)
+        new_coords.append((x, y))
+        new_percentiles.append((lower_percentile, upper_percentile))
         if len(x) > 0 and min(x) < min_lat:
             min_lat = min(x)
         color = metric
@@ -356,6 +364,10 @@ def plot_metrics(
 
     if save_path:
         fig.write_html(save_path)
+
+    if return_metrics:
+        pio.show(fig)
+        return new_metrics, new_coords, new_percentiles
 
     return fig
 
